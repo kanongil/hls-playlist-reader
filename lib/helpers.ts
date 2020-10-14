@@ -5,7 +5,15 @@ import { watch } from 'fs';
 import { basename, dirname } from 'path';
 import { URL, fileURLToPath } from 'url';
 
+import { assert as hoekAssert } from '@hapi/hoek';
 import Uristream = require('uristream');
+
+
+// eslint-disable-next-line func-style
+export function assert(condition: unknown, ...args: any[]): asserts condition {
+
+    hoekAssert(condition, ...args);
+}
 
 
 export type Byterange = {
@@ -73,30 +81,45 @@ export const performFetch = function (uri: URL | string, { byterange, probe = fa
             stream.removeListener('end', onFail);
             stream.removeListener('error', onFail);
 
-            if (err || !meta) {
+            if (err) {
                 return reject(err);
             }
 
-            const result = { meta, stream: !probe && stream || undefined };
+            assert(meta);
+
+            const result = { meta, stream: probe ? undefined : stream };
             if (!result.stream) {
                 stream.destroy();
             }
 
-            return err ? reject(err) : resolve(result);
+            return resolve(result);
         };
 
         const onMeta = (meta: Meta) => {
 
-            meta = Object.assign({}, meta, byterange?.length !== undefined ? { size: byterange.length } : undefined);
+            meta = Object.assign({}, meta);
+
+            // Change filesize to stream length
+
+            if (meta.size >= 0 && byterange) {
+                meta.size = meta.size - byterange.offset;
+                if (byterange.length !== undefined) {
+                    meta.size = Math.min(meta.size, byterange.length);
+                }
+            }
 
             return doFinish(null, meta);
         };
 
         const onFail = (err?: Error) => {
 
+            // Guard against broken uristream
+
+            /* $lab:coverage:off$ */
             if (!err) {
                 err = new Error('No metadata');
             }
+            /* $lab:coverage:on$ */
 
             return doFinish(err);
         };
@@ -112,7 +135,7 @@ export const performFetch = function (uri: URL | string, { byterange, probe = fa
 };
 
 
-type FSWatcherEvents = 'rename' | 'change';
+type FSWatcherEvents = 'rename' | 'change'| 'timeout';
 
 export class FsWatcher {
 
@@ -121,6 +144,7 @@ export class FsWatcher {
     private _error?: Error;
     private _deferred?: Deferred<FSWatcherEvents>;
     private _delayed?: FSWatcherEvents;
+    private _timer?: NodeJS.Timeout;
 
     constructor(uri: URL | string) {
 
@@ -136,6 +160,7 @@ export class FsWatcher {
                     // Slightly delay resolve to handle multiple simultaneous firings
 
                     this._delayed = eventType;
+                    clearTimeout(this._timer!);
                     setImmediate((deferred) => {
 
                         this._deferred!.resolve(this._delayed);
@@ -154,6 +179,7 @@ export class FsWatcher {
             if (this._deferred) {
                 this._deferred.reject(err);
                 this._deferred = undefined;
+                clearTimeout(this._timer!);
             }
 
             this._error = err;
@@ -179,7 +205,7 @@ export class FsWatcher {
 
     // Returns latest event since last call, or waits for next
 
-    next(): PromiseLike<FSWatcherEvents> | FSWatcherEvents {
+    next(timeoutMs?: number): PromiseLike<FSWatcherEvents> | FSWatcherEvents {
 
         if (this._error) {
             throw this._error;
@@ -193,6 +219,14 @@ export class FsWatcher {
 
         this._deferred = new Deferred();
 
+        if (timeoutMs !== undefined) {
+            this._timer = setTimeout((deferred: Deferred<FSWatcherEvents>) => {
+
+                this._deferred!.resolve('timeout');
+                this._deferred = undefined;
+            }, timeoutMs);
+        }
+
         return this._deferred.promise;
     }
 
@@ -205,6 +239,7 @@ export class FsWatcher {
             if (this._deferred) {
                 this._deferred.reject(this._error);
                 this._deferred = undefined;
+                clearTimeout(this._timer!);
             }
         }
     }

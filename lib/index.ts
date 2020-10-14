@@ -1,6 +1,8 @@
+import { URL } from 'url';
+
 import { HlsPlaylistReader, HlsPlaylistReaderOptions } from './playlist-reader';
 
-const createReader = function (uri: string, options: HlsPlaylistReaderOptions = {}): HlsPlaylistReader {
+const createReader = function (uri: URL | string, options?: HlsPlaylistReaderOptions): HlsPlaylistReader {
 
     return new HlsPlaylistReader(uri, options);
 };

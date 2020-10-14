@@ -7,7 +7,7 @@
     "clean": "rm -f lib/*.{js,d.ts}",
     "postpack": "npm run clean",
     "prepack": "tsc",
-    "test": "lab -t 89 -L",
+    "test": "lab -t 95 -L",
     "test-cov-html": "lab -c -r html -o coverage.html"
   },
   "keywords": [

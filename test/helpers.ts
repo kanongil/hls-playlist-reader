@@ -1,13 +1,14 @@
 import * as Fs from 'fs';
 import * as Os from 'os';
 import * as Path from 'path';
+import { Stream } from 'stream';
 import { URL, pathToFileURL } from 'url';
 
 import { expect } from '@hapi/code';
 import { wait } from '@hapi/hoek';
 import * as Lab from '@hapi/lab';
 
-import { FsWatcher } from '../lib/helpers';
+import { FsWatcher, performFetch } from '../lib/helpers';
 
 
 // Test shortcuts
@@ -15,6 +16,122 @@ import { FsWatcher } from '../lib/helpers';
 export const lab = Lab.script();
 const { describe, it, before, after } = lab;
 
+
+describe('performFetch()', () => {
+
+    it('fetches a file with metadata and stream', async () => {
+
+        const url = pathToFileURL(Path.join(__dirname, 'fixtures', '500.m3u8')).href;
+        const { stream, meta } = await performFetch(url);
+
+        stream?.destroy();
+
+        expect(stream).to.be.instanceof(Stream);
+        expect(meta).to.contain({
+            mime: 'application/vnd.apple.mpegurl',
+            size: 416,
+            url
+        } as any);
+        expect(meta.modified).to.be.instanceof(Date);
+    });
+
+    it('stream contains file data', async () => {
+
+        const url = pathToFileURL(Path.join(__dirname, 'fixtures', '500.m3u8')).href;
+        const { stream, meta } = await performFetch(url);
+
+        let transferred = 0;
+        for await (const chunk of stream!) {
+            transferred += (chunk as Buffer).length;
+        }
+
+        expect(transferred).to.equal(meta.size);
+    });
+
+    it('can be aborted early', async () => {
+
+        const url = pathToFileURL(Path.join(__dirname, 'fixtures', '500.m3u8')).href;
+        const fetch = performFetch(url);
+
+        fetch.abort();
+        fetch.abort();   // Do another to verify it is handled
+
+        await expect(fetch).to.reject('Aborted');
+    });
+
+    it('can be aborted late', async () => {
+
+        const url = pathToFileURL(Path.join(__dirname, 'fixtures', '500.m3u8')).href;
+        const fetch = performFetch(url);
+
+        const { stream } = await fetch;
+
+        const receive = async () => {
+
+            for await (const {} of stream!) {}
+        };
+
+        const promise = receive();
+
+        fetch.abort();
+
+        await expect(promise).to.reject('Aborted');
+    });
+
+    it('supports "probe" option', async () => {
+
+        const url = pathToFileURL(Path.join(__dirname, 'fixtures', '500.m3u8')).href;
+        const { stream, meta } = await performFetch(url, { probe: true });
+
+        expect(stream).to.not.exist();
+        expect(meta).to.contain({
+            mime: 'application/vnd.apple.mpegurl',
+            size: 416,
+            url
+        } as any);
+        expect(meta.modified).to.be.instanceof(Date);
+    });
+
+    it('supports late abort with "probe" option', async () => {
+
+        const url = pathToFileURL(Path.join(__dirname, 'fixtures', '500.m3u8')).href;
+        const fetch = performFetch(url, { probe: true });
+
+        await fetch;
+
+        fetch.abort();
+    });
+
+    it('supports "byterange" option', async () => {
+
+        const url = pathToFileURL(Path.join(__dirname, 'fixtures', '500.m3u8')).href;
+        const { stream, meta } = await performFetch(url, { byterange: { offset: 10, length: 2000 } });
+        stream?.destroy();
+
+        expect(stream).to.be.instanceof(Stream);
+        expect(meta).to.contain({
+            mime: 'application/vnd.apple.mpegurl',
+            size: 406,
+            url
+        } as any);
+        expect(meta.modified).to.be.instanceof(Date);
+    });
+
+    it('supports "byterange" option without "length"', async () => {
+
+        const url = pathToFileURL(Path.join(__dirname, 'fixtures', '500.m3u8')).href;
+        const { stream, meta } = await performFetch(url, { byterange: { offset: 400 } });
+        stream?.destroy();
+
+        expect(stream).to.be.instanceof(Stream);
+        expect(meta).to.contain({
+            mime: 'application/vnd.apple.mpegurl',
+            size: 16,
+            url
+        } as any);
+        expect(meta.modified).to.be.instanceof(Date);
+    });
+});
 
 describe('FsWatcher', () => {
 
@@ -163,6 +280,22 @@ describe('FsWatcher', () => {
             }
         });
 
+        it('supports timeout', async () => {
+
+            const fileUrl = new URL('file1', tmpDir);
+            const watcher = new FsWatcher(fileUrl);
+            try {
+                const promise = watcher.next(20);
+
+                expect(await Promise.race([promise, wait(1, 'waiting')])).to.equal('waiting');
+                await wait(20);
+                expect(await Promise.race([promise, wait(1, 'waiting')])).to.equal('timeout');
+            }
+            finally {
+                watcher.close();
+            }
+        });
+
         it('does not trigger for adjecent file changes', async () => {
 
             const fileUrl = new URL('file1', tmpDir);
@@ -209,7 +342,7 @@ describe('FsWatcher', () => {
             }
         });
 
-        it('throws on errors when not called', () => {
+        it('throws on errors while not called', () => {
 
             const fileUrl = new URL('file1', tmpDir);
             const watcher = new FsWatcher(fileUrl);

@@ -4,19 +4,12 @@ import { hrtime } from 'process';
 import { Stream } from 'stream';
 import { URL } from 'url';
 
-import { Boom } from '@hapi/boom';
-import { assert as hoekAssert, wait } from '@hapi/hoek';
+import { Boom, internal } from '@hapi/boom';
+import { wait } from '@hapi/hoek';
 import M3U8Parse, { AttrList, MediaPlaylist, MediaSegment, MasterPlaylist, ParserError } from 'm3u8parse';
 
-import { Byterange, FsWatcher, performFetch } from './helpers';
+import { assert, Byterange, FsWatcher, performFetch } from './helpers';
 import { BaseEvents, TypedEmitter, TypedReadable } from './raw/typed-readable';
-
-
-// eslint-disable-next-line func-style
-function assert(condition: any, ...args: any[]): asserts condition {
-
-    hoekAssert(condition, ...args);
-}
 
 
 type Hint = {
@@ -29,11 +22,6 @@ type Hint = {
 
 
 const internals = {
-    indexMimeTypes: new Set([
-        'application/vnd.apple.mpegurl',
-        'application/x-mpegurl',
-        'audio/mpegurl'
-    ]),
     emptyHints: Object.freeze({ part: undefined, map: undefined }),
 
     isSameHint(h1?: Hint, h2?: Hint): boolean {
@@ -70,7 +58,6 @@ export type HlsPlaylistReaderOptions = {
     extensions?: { [K: string]: boolean };
 };
 
-
 export type PartData = {
     uri: string;
     byterange?: Byterange;
@@ -81,18 +68,40 @@ export type PreloadHints = {
     map?: PartData;
 };
 
+
 export class ParsedPlaylist {
 
     private _index: Readonly<MediaPlaylist>;
+    private _noLowLatency: boolean;
 
-    constructor(index: Readonly<MediaPlaylist>) {
+    constructor(index: Readonly<MediaPlaylist>, options: { noLowLatency?: boolean } = {}) {
+
+        this._noLowLatency = !!options.noLowLatency;
+
+        if (this._noLowLatency) {
+            const stripped = index = new MediaPlaylist(index);
+
+            delete stripped.part_info;
+            delete stripped.meta.preload_hints;
+            delete stripped.meta.rendition_reports;
+
+            stripped.server_control?.delete('part-hold-back');
+
+            if (stripped.segments.length && stripped.segments[stripped.segments.length - 1].isPartial()) {
+                stripped.segments.pop();
+            }
+
+            for (const segment of stripped.segments) {
+                delete segment.parts;
+            }
+        }
 
         this._index = index;
     }
 
-    isSameHead(index: Readonly<MediaPlaylist>, includePartial = false): boolean {
+    isSameHead(index: Readonly<MediaPlaylist>): boolean {
 
-        includePartial &&= !this._index.i_frames_only;
+        const includePartial = !this._noLowLatency && !this._index.i_frames_only;
 
         const sameMsn = this._index.lastMsn(includePartial) === index.lastMsn(includePartial);
         if (!sameMsn || !includePartial) {
@@ -105,11 +114,9 @@ export class ParsedPlaylist {
             (index.segments[index.segments.length - 1].parts || []).length);
     }
 
-    nextHead(includePartial = false): { msn: number; part?: number } {
+    nextHead(): { msn: number; part?: number } {
 
-        includePartial &&= !this._index.i_frames_only;
-
-        if (includePartial && this.partTarget) {
+        if (this.partTarget && !this._index.i_frames_only) {
             const lastSegment = this.segments.length ? this.segments[this.segments.length - 1] : { uri: undefined, parts: undefined };
             const hasPartialSegment = !lastSegment.uri;
             const parts = lastSegment.parts || [];
@@ -170,6 +177,7 @@ export class ParsedPlaylist {
     }
 }
 
+
 export type HlsIndexMeta = {
     url: string;
     updated: Date;
@@ -187,11 +195,18 @@ interface IHlsPlaylistReaderEvents {
     problem(err: Readonly<Error>): void;
 }
 
+
 /**
  * Reads an HLS media playlist, and emits updates.
  * Live & Event playlists are refreshed as needed, and expired segments are dropped when backpressure is applied.
  */
 export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, TypedReadable<Readonly<PlaylistReaderObject>>()) {
+
+    static readonly indexMimeTypes = new Set([
+        'application/vnd.apple.mpegurl',
+        'application/x-mpegurl',
+        'audio/mpegurl'
+    ]);
 
     static readonly recoverableCodes = new Set<number>([
         404, // Not Found
@@ -218,12 +233,12 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
     #fetch?: ReturnType<typeof performFetch>;
     #watcher?: FsWatcher;
 
-    constructor(src: string, options: HlsPlaylistReaderOptions = {}) {
+    constructor(uri: URL | string, options: HlsPlaylistReaderOptions = {}) {
 
         super({ objectMode: true, highWaterMark: 0 });
 
-        this.url = new URL(src);
-        this.baseUrl = src;
+        this.url = new URL(uri as string);
+        this.baseUrl = this.url.href;
 
         this.lowLatency = !!options.lowLatency;
 
@@ -249,20 +264,15 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
         return this.#currentHints;
     }
 
-    get indexMimeTypes(): Set<string> {
-
-        return internals.indexMimeTypes;
-    }
-
     validateIndexMeta(meta: FetchResult['meta']): void | never {
 
         // Check for valid mime type
 
-        if (!this.indexMimeTypes.has(meta.mime.toLowerCase()) &&
+        if (!HlsPlaylistReader.indexMimeTypes.has(meta.mime.toLowerCase()) &&
             meta.url.indexOf('.m3u8', meta.url.length - 5) === -1 &&
             meta.url.indexOf('.m3u', meta.url.length - 4) === -1) {
 
-            throw new Error('Invalid MIME type: ' + meta.mime); // TODO: make recoverable
+            throw new Error('Invalid MIME type: ' + meta.mime);
         }
     }
 
@@ -295,10 +305,50 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
 
     canUpdate(): boolean {
 
-        return !this.index || this.index.isLive();
+        return !this.destroyed && (!this.index || this.index.isLive());
     }
 
-    /*protected*/ _read(): void {
+    protected preprocessIndex<T extends MediaPlaylist | MasterPlaylist>(index: T): T | undefined {
+
+        // Reject "old" index updates (eg. from CDN cached response & hitting multiple endpoints)
+
+        if (this.index) {
+            assert(this.index instanceof MediaPlaylist);
+
+            // TODO: only test when fetched without blocking request
+
+            if (MediaPlaylist.cast(index).lastMsn(true) < this.index.lastMsn(true)) {
+                if (this.#rejected < 2) {
+                    this.#rejected++;
+                    throw internal('Rejected update from the past');
+                }
+            }
+
+            // TODO: reject other strange updates??
+        }
+
+        this.#rejected = 0;
+
+        return index;
+    }
+
+    protected getUpdateInterval({ index, partTarget }: ParsedPlaylist, updated = false): number {
+
+        let updateInterval = index.target_duration!;
+        if (partTarget! > 0 && !index.i_frames_only) {
+            updateInterval = partTarget!;
+        }
+
+        if (!updated || !index.segments.length) {
+            updateInterval /= 2;
+        }
+
+        return updateInterval;
+    }
+
+    // Overrides
+
+    _read(): void {
 
         if (!this.processing && this.canUpdate()) {
             this._startUpdate();
@@ -339,36 +389,6 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
                 }
             }
         }
-    }
-
-    protected _preprocessIndex<T extends MediaPlaylist | MasterPlaylist>(index: T): T | undefined {
-
-        // Reject "old" index updates (eg. from CDN cached response & hitting multiple endpoints)
-
-        if (this.index && this.#rejected < 3) {
-            if (MediaPlaylist.cast(index).lastMsn(true) < MediaPlaylist.cast(this.index as T).lastMsn(true)) {
-                this.#rejected++;
-                //this.emit<'problem'>('problem', new Error('Rejected update from the past')); // TODO: make recoverable
-                return this.index as T;
-            }
-
-            // TODO: reject other strange updates??
-        }
-
-        this.#rejected = 0;
-
-        /*if (!this.lowLatency) {
-
-            // Ignore partial-only segment
-
-            if (index.segments.length && !index.segments[index.segments.length - 1].uri) {
-                index.segments.pop();
-            }
-
-            // TODO: strip all low-latency
-        }*/
-
-        return index;
     }
 
     private _updateHints(playlist: ParsedPlaylist): boolean {
@@ -451,25 +471,23 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
             var { meta, stream } = await fetchPromise;
             const updatedAt = new Date();
 
-            assert(!this.destroyed, 'destroyed');
             this.validateIndexMeta(meta);
 
             const rawIndex = await M3U8Parse(stream as Stream, { extensions: this.extensions });
-            assert(!this.destroyed, 'destroyed');
 
             (this as any).updated = updatedAt;
             (this as any).baseUrl = meta.url;
             (this as any).modified = meta.modified !== null ? new Date(meta.modified) : undefined;
-            this.#index = this._preprocessIndex(rawIndex);
+            this.#index = this.preprocessIndex(rawIndex);
 
             assert(this.index, 'Missing index');
 
             updated ||= !this.canUpdate();      // If there are no more updates, then we always need to push the index
 
-            this.#playlist = !this.index.master ? new ParsedPlaylist(this.index) : undefined;
+            this.#playlist = !this.index.master ? new ParsedPlaylist(this.index, { noLowLatency: !this.lowLatency }) : undefined;
             if (this.#playlist) {
                 if (fromIndex && this.canUpdate()) {
-                    updated ||= !this.#playlist.isSameHead(fromIndex, this.lowLatency);
+                    updated ||= !this.#playlist.isSameHead(fromIndex);
                 }
 
                 updated = this._updateHints(this.#playlist) || updated; // No ||= since the update has a side-effect, and will not be called if updated is already set
@@ -500,23 +518,9 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
             this._stallCheck(updated);
 
             if (more && this.index?.isLive()) {
-                this._startUpdate(updated, errored || this.#rejected > 1);
+                this._startUpdate(updated, errored);
             }
         }
-    }
-
-    protected _getUpdateInterval({ index, partTarget }: ParsedPlaylist, updated = false): number {
-
-        let updateInterval = index.target_duration!;
-        if (this.lowLatency && partTarget! > 0 && !index.i_frames_only) {
-            updateInterval = partTarget!;
-        }
-
-        if (!updated || !index.segments.length) {
-            updateInterval /= 2;
-        }
-
-        return updateInterval;
     }
 
     /**
@@ -529,14 +533,14 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
             throw new Error('data: uri cannot be updated');
         }
 
-        let delayMs = this._getUpdateInterval(fromPlaylist, wasUpdated && !wasError) * 1000;
+        let delayMs = this.getUpdateInterval(fromPlaylist, wasUpdated && !wasError) * 1000;
 
         delayMs -= Date.now() - +this.updated!;
 
         // Apply SERVER-CONTROL, if available
 
         if (!wasError && fromPlaylist.serverControl.canBlockReload) {
-            const head = fromPlaylist.nextHead(this.lowLatency);
+            const head = fromPlaylist.nextHead();
 
             // TODO: detect when playlist is behind server, and guess future part instead / CDN tunein
 
@@ -553,14 +557,16 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
         if (delayMs > 0) {
             if (this.#watcher) {
                 try {
-                    await Promise.race([wait(delayMs), this.#watcher.next()]);
+                    await this.#watcher.next(delayMs);
                 }
                 catch (err) {
+                    /* $lab:coverage:off$ */
                     if (!this.destroyed) {
                         this.emit<'problem'>('problem', err);
                     }
 
                     this.#watcher = undefined;
+                    /* $lab:coverage:on$ */
                 }
             }
             else {
