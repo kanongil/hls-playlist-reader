@@ -137,6 +137,20 @@ describe('FsWatcher', () => {
 
     let tmpDir: URL;
 
+    const createWatcher = async function (uri: URL | string) {
+
+        if (Os.platform() === 'darwin') {
+            await wait(10); // macOS needs time to settle before starting the watcher...
+        }
+
+        const watcher = new FsWatcher(uri);
+        if (Os.platform() === 'darwin') {
+            await wait(10); // macOS needs time to setup the watcher...
+        }
+
+        return watcher;
+    };
+
     before(async () => {
 
         const path = await Fs.promises.mkdtemp(await Fs.promises.realpath(Os.tmpdir()) + Path.sep) + Path.sep;
@@ -156,13 +170,13 @@ describe('FsWatcher', () => {
             try {
                 await Fs.promises.writeFile(fileUrl, '<run>1</run>', 'utf-8');
 
-                const watcher = new FsWatcher(fileUrl);
+                const watcher = await createWatcher(fileUrl);
                 const promise = watcher.next();
                 expect(await Promise.race([promise, wait(1, 'waiting')])).to.equal('waiting');
 
                 await Fs.promises.writeFile(fileUrl, '<run>2</run>', 'utf-8');
 
-                expect(await promise).to.equal('change');
+                expect(await promise).to.match(/change|rename/);
             }
             finally {
                 await Fs.promises.unlink(fileUrl);
@@ -175,12 +189,12 @@ describe('FsWatcher', () => {
             try {
                 await Fs.promises.writeFile(fileUrl, '<run>1</run>', 'utf-8');
 
-                const watcher = new FsWatcher(fileUrl);
+                const watcher = await createWatcher(fileUrl);
                 try {
                     await Fs.promises.writeFile(fileUrl, '<run>2</run>', 'utf-8');
 
-                    const result = watcher.next();
-                    expect(result).to.equal('change');
+                    const result = await watcher.next();
+                    expect(result).to.match(/change|rename/);
                 }
                 finally {
                     watcher.close();
@@ -194,14 +208,16 @@ describe('FsWatcher', () => {
         it('works without a file', async () => {
 
             const fileUrl = new URL('file1', tmpDir);
-            const watcher = new FsWatcher(fileUrl);
+            const watcher = await createWatcher(fileUrl);
             try {
                 const promise = watcher.next();
 
                 expect(await Promise.race([promise, wait(1, 'waiting')])).to.equal('waiting');
                 await Fs.promises.writeFile(fileUrl, '<run>1</run>', 'utf-8');
                 expect(await promise).to.equal('rename');
-                expect(await watcher.next()).to.equal('change');
+                if (Os.platform() === 'linux') {
+                    expect(await watcher.next()).to.equal('change');
+                }
             }
             finally {
                 watcher.close();
@@ -212,14 +228,14 @@ describe('FsWatcher', () => {
         it('works more than once', async () => {
 
             const fileUrl = new URL('file2', tmpDir);
-            const watcher = new FsWatcher(fileUrl);
+            const watcher = await createWatcher(fileUrl);
             try {
                 await Fs.promises.writeFile(fileUrl, '<run>1</run>', 'utf-8');
-                expect(await watcher.next()).to.equal('change');
+                expect(await watcher.next()).to.match(/change|rename/);
                 await Fs.promises.writeFile(fileUrl, '<run>2</run>', 'utf-8');
-                expect(await watcher.next()).to.equal('change');
+                expect(await watcher.next()).to.match(/change|rename/);
                 await Fs.promises.writeFile(fileUrl, '<run>3</run>', 'utf-8');
-                expect(await watcher.next()).to.equal('change');
+                expect(await watcher.next()).to.match(/change|rename/);
             }
             finally {
                 watcher.close();
@@ -233,7 +249,7 @@ describe('FsWatcher', () => {
             try {
                 await Fs.promises.writeFile(fileUrl, '<run>1</run>', 'utf-8');
 
-                const watcher = new FsWatcher(fileUrl);
+                const watcher = await createWatcher(fileUrl);
                 try {
                     await Fs.promises.unlink(fileUrl);
 
@@ -241,7 +257,7 @@ describe('FsWatcher', () => {
 
                     await Fs.promises.writeFile(fileUrl, '<run>2</run>', 'utf-8');
 
-                    expect(await watcher.next()).to.equal('change');
+                    expect(await watcher.next()).to.match(/change|rename/);
                 }
                 finally {
                     watcher.close();
@@ -259,7 +275,7 @@ describe('FsWatcher', () => {
             try {
                 await Fs.promises.writeFile(fileUrl, '<run>1</run>', 'utf-8');
 
-                const watcher = new FsWatcher(fileUrl);
+                const watcher = await createWatcher(fileUrl);
                 try {
                     const promise = watcher.next();
 
@@ -283,12 +299,12 @@ describe('FsWatcher', () => {
         it('supports timeout', async () => {
 
             const fileUrl = new URL('file1', tmpDir);
-            const watcher = new FsWatcher(fileUrl);
+            const watcher = await createWatcher(fileUrl);
             try {
                 const promise = watcher.next(20);
 
                 expect(await Promise.race([promise, wait(1, 'waiting')])).to.equal('waiting');
-                await wait(20);
+                await wait(25);
                 expect(await Promise.race([promise, wait(1, 'waiting')])).to.equal('timeout');
             }
             finally {
@@ -304,7 +320,7 @@ describe('FsWatcher', () => {
                 await Fs.promises.writeFile(fileUrl, '<run>1</run>', 'utf-8');
                 await Fs.promises.writeFile(adjUrl, '<run>1</run>', 'utf-8');
 
-                const watcher = new FsWatcher(fileUrl);
+                const watcher = await createWatcher(fileUrl);
                 const promise = watcher.next();
                 try {
                     expect(await Promise.race([promise, wait(1, 'waiting')])).to.equal('waiting');
