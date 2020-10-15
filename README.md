@@ -2,7 +2,7 @@
 
 Read playlist updates from any [Apple HLS](http://tools.ietf.org/html/draft-pantos-http-live-streaming) source in an object-mode `Readable`.
 
-[![Build Status](https://travis-ci.org/kanongil/node-hls-playlist-reader.svg?branch=master)](https://travis-ci.org/kanongil/node-hls-playlist-reader)
+[![Build Status](https://travis-ci.org/kanongil/hls-playlist-reader.svg?branch=master)](https://travis-ci.org/kanongil/hls-playlist-reader)
 
 ## Installation
 

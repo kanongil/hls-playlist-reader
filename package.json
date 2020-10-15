@@ -45,10 +45,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kanongil/node-hls-playlist-reader.git"
+    "url": "git+https://github.com/kanongil/hls-playlist-reader.git"
   },
   "bugs": {
-    "url": "https://github.com/kanongil/node-hls-playlist-reader/issues"
+    "url": "https://github.com/kanongil/hls-playlist-reader/issues"
   },
-  "homepage": "https://github.com/kanongil/node-hls-playlist-reader"
+  "homepage": "https://github.com/kanongil/hls-playlist-reader"
 }
