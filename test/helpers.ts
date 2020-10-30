@@ -5,10 +5,10 @@ import { Stream } from 'stream';
 import { URL, pathToFileURL } from 'url';
 
 import { expect } from '@hapi/code';
-import { wait } from '@hapi/hoek';
+import { ignore, wait } from '@hapi/hoek';
 import * as Lab from '@hapi/lab';
 
-import { FsWatcher, performFetch } from '../lib/helpers';
+import { Deferred, FsWatcher, performFetch } from '../lib/helpers';
 
 
 // Test shortcuts
@@ -16,6 +16,83 @@ import { FsWatcher, performFetch } from '../lib/helpers';
 export const lab = Lab.script();
 const { describe, it, before, after } = lab;
 
+
+describe('Deferred()', () => {
+
+    const savedEmit = process.emitWarning;
+
+    before(() => {
+
+        process.emitWarning = ignore;
+    });
+
+    after(() => {
+
+        process.emitWarning = savedEmit;
+    });
+
+    it('resolves with deferred value (early)', async () => {
+
+        const deferred = new Deferred();
+        const val = {};
+
+        deferred.resolve(val);
+        expect(await deferred.promise).to.equal(val);
+    });
+
+    it('resolves with deferred value (late)', async () => {
+
+        const deferred = new Deferred();
+        const val = {};
+
+        process.nextTick(() => deferred.resolve(val));
+        expect(await deferred.promise).to.equal(val);
+    });
+
+    it('rejects with rejected value', async () => {
+
+        const deferred = new Deferred();
+
+        deferred.reject(new Error('fail'));
+        await expect(deferred.promise).to.reject('fail');
+    });
+
+    it('can create unhandledRejection when independent=false', (flags: any) => {
+
+        const unhandled = new Promise((resolve, reject) => {
+
+            flags.onUnhandledRejection = reject;
+        });
+
+        return (async () => {
+
+            const deferred = new Deferred(false);
+
+            deferred.reject(new Error('fail'));
+            await wait(1);
+            await expect(deferred.promise).to.reject('fail');
+            await expect(unhandled).to.reject('fail');
+        })();
+    });
+
+    it('does not create unhandledRejection when independent=true', (flags: any) => {
+
+        const unhandled = new Promise((resolve, reject) => {
+
+            flags.onUnhandledRejection = reject;
+        });
+
+        return (async () => {
+
+            const deferred = new Deferred(true);
+
+            deferred.reject(new Error('fail'));
+            await wait(1);
+            await expect(deferred.promise).to.reject('fail');
+            await Promise.race([unhandled, wait(1)]);
+        })();
+    });
+});
 
 describe('performFetch()', () => {
 

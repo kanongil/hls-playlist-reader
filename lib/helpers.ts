@@ -5,7 +5,7 @@ import { watch } from 'fs';
 import { basename, dirname } from 'path';
 import { URL, fileURLToPath } from 'url';
 
-import { assert as hoekAssert } from '@hapi/hoek';
+import { assert as hoekAssert, ignore } from '@hapi/hoek';
 import Uristream = require('uristream');
 
 
@@ -38,13 +38,17 @@ export class Deferred<T> {
     resolve: (arg?: T) => void = undefined as any;
     reject: (err: Error) => void = undefined as any;
 
-    constructor() {
+    constructor(independent = false) {
 
         this.promise = new Promise<T>((resolve, reject) => {
 
             this.resolve = resolve;
             this.reject = reject;
         });
+
+        if (independent) {
+            this.promise.catch(ignore);
+        }
     }
 }
 
