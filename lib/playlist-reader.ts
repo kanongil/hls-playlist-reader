@@ -1,6 +1,5 @@
 import type { FetchResult } from './helpers';
 
-import { hrtime } from 'process';
 import { Stream } from 'stream';
 import { URL } from 'url';
 
@@ -226,12 +225,12 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
     processing = false;
 
     #rejected = 0;
-    #indexStalledAt: bigint | null = null;
     #index?: MediaPlaylist | MasterPlaylist;
     #playlist?: ParsedPlaylist;
     #currentHints: ParsedPlaylist['preloadHints'] = internals.emptyHints;
     #fetch?: ReturnType<typeof performFetch>;
     #watcher?: FsWatcher;
+    #stallTimer?: NodeJS.Timeout;
 
     constructor(uri: URL | string, options: HlsPlaylistReaderOptions = {}) {
 
@@ -366,27 +365,25 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
             this.#watcher = undefined;
         }
 
+        clearTimeout(this.#stallTimer!);
+
         return super._destroy(err, cb as any);
     }
 
     // Private methods
 
     /**
-     * Throws if method has not been called with updated === true for options.stallAfterMs
+     * Destroys reader if method has not been called with updated === true for options.stallAfterMs
      */
     private _stallCheck(updated = false): void | never {
 
         if (updated) {
-            this.#indexStalledAt = null;
-        }
-        else {
-            if (this.#indexStalledAt === null) {
-                this.#indexStalledAt = hrtime.bigint();      // Record when stall began
-            }
-            else {
-                if (Number((hrtime.bigint() - this.#indexStalledAt) / BigInt(1000000)) > this.stallAfterMs) {
-                    throw new Error('Index update stalled');
-                }
+            clearTimeout(this.#stallTimer!);
+            if (this.stallAfterMs !== Infinity) {
+                this.#stallTimer = setTimeout(() => {
+
+                    this.destroy(new Error('Index update stalled'));
+                }, this.stallAfterMs);
             }
         }
     }
