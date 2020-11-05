@@ -7,7 +7,7 @@ import { Boom, internal } from '@hapi/boom';
 import { wait } from '@hapi/hoek';
 import M3U8Parse, { AttrList, MediaPlaylist, MediaSegment, MasterPlaylist, ParserError } from 'm3u8parse';
 
-import { assert, Byterange, FsWatcher, performFetch } from './helpers';
+import { assert, Byterange, FsWatcher, performFetch, FetchOptions } from './helpers';
 import { BaseEvents, TypedEmitter, TypedReadable } from './raw/typed-readable';
 
 
@@ -427,11 +427,11 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
         }
     }
 
-    private _createFetch(url: URL): ReturnType<typeof performFetch> {
+    private _createFetch(url: URL, options?: FetchOptions): ReturnType<typeof performFetch> {
 
         assert(!this.#fetch, 'Already fetching');
 
-        return (this.#fetch = performFetch(url, { timeout: 30 * 1000 }));
+        return (this.#fetch = performFetch(url, Object.assign({ timeout: 30 * 1000 }, options)));
     }
 
     private _start() {
@@ -531,6 +531,7 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
         }
 
         let delayMs = this.getUpdateInterval(fromPlaylist, wasUpdated && !wasError) * 1000;
+        let blocking;
 
         delayMs -= Date.now() - +this.updated!;
 
@@ -548,6 +549,7 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
                 url.searchParams.set('_HLS_part', `${head.part}`);
             }
 
+            blocking = this.url.href;
             delayMs = 0;
         }
 
@@ -573,6 +575,6 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
             assert(!this.destroyed, 'destroyed');
         }
 
-        return await this._performUpdate(this._createFetch(url), fromPlaylist.index);
+        return await this._performUpdate(this._createFetch(url, { blocking }), fromPlaylist.index);
     }
 }

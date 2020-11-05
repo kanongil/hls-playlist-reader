@@ -5,6 +5,7 @@ import { watch } from 'fs';
 import { basename, dirname } from 'path';
 import { URL, fileURLToPath } from 'url';
 
+import AgentKeepalive = require('agentkeepalive');
 import { assert as hoekAssert, ignore } from '@hapi/hoek';
 import Uristream = require('uristream');
 
@@ -28,7 +29,36 @@ export type FetchResult = {
 
 
 const internals = {
-    fetchBuffer: 10 * 1000 * 1000
+    fetchBuffer: 10 * 1000 * 1000,
+
+    agents: new Map < string | symbol, { http: AgentKeepalive; https: AgentKeepalive.HttpsAgent }>(),
+    blockingConfig(id?: string | symbol): { agent: { http: AgentKeepalive; https: AgentKeepalive.HttpsAgent } } | undefined {
+
+        if (id === undefined) {
+            return;
+        }
+
+        // Create a keepalive agent with 1 socket for each blocking id
+
+        let agents = internals.agents.get(id);
+        if (!agents) {
+            const config = {
+                maxSockets: 1,
+                maxFreeSockets: 1,
+                timeout: 0, // disable socket inactivity timeout
+                freeSocketTimeout: 2000 // free unused sockets after 2 seconds
+            };
+
+            agents = {
+                http: new AgentKeepalive(config),
+                https: new AgentKeepalive.HttpsAgent(config)
+            };
+
+            internals.agents.set(id, agents);
+        }
+
+        return { agent: agents };
+    }
 };
 
 
@@ -55,22 +85,23 @@ export class Deferred<T> {
 
 type AbortablePromise<T> = Promise<T> & { abort: () => void };
 
-type FetchOptions = {
+export type FetchOptions = {
     byterange?: Byterange;
     probe?: boolean;
     timeout?: number;
     retries?: number;
+    blocking?: string | symbol;
 };
 
 
-export const performFetch = function (uri: URL | string, { byterange, probe = false, timeout, retries = 1 }: FetchOptions = {}): AbortablePromise<FetchResult> {
+export const performFetch = function (uri: URL | string, { byterange, probe = false, timeout, retries = 1, blocking }: FetchOptions = {}): AbortablePromise<FetchResult> {
 
     const streamOptions = Object.assign({
         probe,
         highWaterMark: internals.fetchBuffer,
         timeout: probe ? 30 * 1000 : timeout,
         retries
-    }, byterange ? {
+    }, internals.blockingConfig(blocking), byterange ? {
         start: byterange.offset,
         end: byterange.length !== undefined ? byterange.offset + byterange.length - 1 : undefined
     } : undefined);

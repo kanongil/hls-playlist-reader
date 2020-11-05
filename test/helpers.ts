@@ -208,6 +208,41 @@ describe('performFetch()', () => {
         } as any);
         expect(meta.modified).to.be.instanceof(Date);
     });
+
+    it('supports https "blocking" option', async () => {
+
+        const blocking = 'test';
+
+        const fetches = [];
+        for (let i = 0; i < 5; ++i) {
+            fetches.push((async () => {
+
+                const { stream } = await performFetch('https://www.google.com', { blocking });
+
+                const ready = process.hrtime.bigint();
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                for await (const _ of stream!) {}
+                const completed = process.hrtime.bigint();
+
+                return { ready, completed };
+            })());
+        }
+
+        await performFetch('https://www.google.com', { probe: true });
+        const independentReady = process.hrtime.bigint();
+
+        expect(fetches).to.have.length(5);
+        const results = await Promise.all(fetches);
+
+        let last = { completed: BigInt(0) };
+        for (let i = 0; i < 5; ++i) {
+            expect(results[i].ready).to.be.greaterThan(last.completed);
+            expect(results[i].completed).to.be.greaterThan(results[i].ready);
+            last = results[i];
+        }
+
+        expect(independentReady).to.be.lessThan(results[4].completed);
+    });
 });
 
 describe('FsWatcher', () => {
