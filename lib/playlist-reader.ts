@@ -1,3 +1,4 @@
+import type { ReadableOptions } from 'readable-stream';
 import type { FetchResult } from './helpers';
 
 import { Stream } from 'stream';
@@ -234,7 +235,7 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
 
     constructor(uri: URL | string, options: HlsPlaylistReaderOptions = {}) {
 
-        super({ objectMode: true, highWaterMark: 0 });
+        super({ objectMode: true, highWaterMark: 0, autoDestroy: true, emitClose: true } as ReadableOptions);
 
         this.url = new URL(uri as string);
         this.baseUrl = this.url.href;
