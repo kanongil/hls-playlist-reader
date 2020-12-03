@@ -534,7 +534,9 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
         let delayMs = this.getUpdateInterval(fromPlaylist, wasUpdated && !wasError) * 1000;
         let blocking;
 
-        delayMs -= Date.now() - +this.updated!;
+        if (wasUpdated) {
+            delayMs -= Date.now() - +this.updated!;
+        }
 
         // Apply SERVER-CONTROL, if available
 
@@ -543,7 +545,7 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
 
             // TODO: detect when playlist is behind server, and guess future part instead / CDN tunein
 
-            // Params must appear in UTF-8 order
+            // Params should appear in UTF-8 order
 
             url.searchParams.set('_HLS_msn', `${head.msn}`);
             if (head.part !== undefined) {
