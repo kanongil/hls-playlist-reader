@@ -287,7 +287,11 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
         const { recoverableCodes } = HlsPlaylistReader;
 
         if (err instanceof Boom) {
-            if (err.isServer || recoverableCodes.has(err.output.statusCode)) {
+            const boom: Boom & { isBlocking?: boolean } = err;
+            if (boom.isServer ||
+                boom.isBlocking ||
+                recoverableCodes.has(boom.output.statusCode)) {
+
                 return true;
             }
         }
@@ -578,6 +582,15 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
             assert(!this.destroyed, 'destroyed');
         }
 
-        return await this._performUpdate(this._createFetch(url, { blocking }), fromPlaylist.index);
+        try {
+            return await this._performUpdate(this._createFetch(url, { blocking }), fromPlaylist.index);
+        }
+        catch (err) {
+            if (err instanceof Boom) {
+                throw Object.assign(err, { isBlocking: !!blocking });
+            }
+
+            throw err;
+        }
     }
 }
