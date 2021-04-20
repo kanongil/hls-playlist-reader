@@ -196,9 +196,13 @@ export class FsWatcher {
 
                     this._delayed = eventType;
                     clearTimeout(this._timer!);
-                    setImmediate((deferred) => {
+                    setImmediate(() => {
 
-                        this._deferred!.resolve(this._delayed);
+                        if (!this._deferred) {
+                            return;                 // Can happen if error is triggered
+                        }
+
+                        this._deferred!.resolve(eventType);
                         this._deferred = this._delayed = undefined;
                     });
                 }
