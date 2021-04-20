@@ -1,6 +1,6 @@
 {
   "name": "hls-playlist-reader",
-  "version": "1.1.2",
+  "version": "1.1.3",
   "description": "Read playlist updates from a HLS stream",
   "main": "lib",
   "scripts": {
