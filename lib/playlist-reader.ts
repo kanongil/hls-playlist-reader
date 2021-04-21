@@ -544,7 +544,7 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
 
         // Apply SERVER-CONTROL, if available
 
-        if (!wasError && fromPlaylist.serverControl.canBlockReload) {
+        if (wasUpdated && fromPlaylist.serverControl.canBlockReload) {
             const head = fromPlaylist.nextHead();
 
             // TODO: detect when playlist is behind server, and guess future part instead / CDN tunein
