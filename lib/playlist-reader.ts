@@ -484,12 +484,12 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
 
             assert(this.index, 'Missing index');
 
-            updated ||= !this.canUpdate();      // If there are no more updates, then we always need to push the index
+            updated || (updated = !this.canUpdate());      // If there are no more updates, then we always need to push the index
 
             this.#playlist = !this.index.master ? new ParsedPlaylist(this.index, { noLowLatency: !this.lowLatency }) : undefined;
             if (this.#playlist) {
                 if (fromIndex && this.canUpdate()) {
-                    updated ||= !this.#playlist.isSameHead(fromIndex);
+                    updated || (updated = !this.#playlist.isSameHead(fromIndex));
                 }
 
                 updated = this._updateHints(this.#playlist) || updated; // No ||= since the update has a side-effect, and will not be called if updated is already set
