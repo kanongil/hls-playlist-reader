@@ -5,7 +5,7 @@ import { ignore } from '@hapi/hoek';
 import * as Lab from '@hapi/lab';
 
 import { Constructor, TypedDuplex, TypedEmitter, TypedReadable, TypedTransform, TypedWritable } from '../lib/raw/typed-readable';
-import { Duplex, Readable, Transform, Writable } from 'readable-stream';
+import { Duplex, Readable, Transform, Writable } from 'stream';
 
 
 // Test shortcuts

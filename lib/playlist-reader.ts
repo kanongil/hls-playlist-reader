@@ -1,4 +1,4 @@
-import type { ReadableOptions } from 'readable-stream';
+import type { ReadableOptions } from 'stream';
 import type { FetchResult } from './helpers';
 
 import { Stream } from 'stream';
@@ -407,7 +407,7 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
 
     private _pushUpdate(meta: HlsIndexMeta): boolean {
 
-        assert(!this._readableState.ended);
+        assert(!this.readableEnded);
         assert(this.index, 'Missing index');
 
         this.push({ index: this.index, playlist: this.#playlist, meta });
@@ -426,7 +426,7 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
             try {
                 this.emit<'problem'>('problem', err);
             }
-            catch (err) {
+            catch (err: any) {
                 this.destroy(err);
             }
         }
@@ -565,7 +565,7 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
                 try {
                     await this.#watcher.next(delayMs);
                 }
-                catch (err) {
+                catch (err: any) {
                     /* $lab:coverage:off$ */
                     if (!this.destroyed) {
                         this.emit<'problem'>('problem', err);

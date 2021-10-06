@@ -170,7 +170,7 @@ export const performFetch = function (uri: URL | string, { byterange, probe = fa
 };
 
 
-type FSWatcherEvents = 'rename' | 'change'| 'timeout';
+type FSWatcherEvents = 'rename' | 'change' | 'timeout';
 
 export class FsWatcher {
 
@@ -259,7 +259,7 @@ export class FsWatcher {
         this._deferred = new Deferred();
 
         if (timeoutMs !== undefined) {
-            this._timer = setTimeout((deferred: Deferred<FSWatcherEvents>) => {
+            this._timer = setTimeout(() => {
 
                 this._deferred!.resolve('timeout');
                 this._deferred = undefined;

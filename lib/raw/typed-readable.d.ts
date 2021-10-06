@@ -1,5 +1,5 @@
 import type { EventEmitter } from 'events';
-import type { Duplex, Readable, Transform, Writable } from 'readable-stream';
+import type { Duplex, Readable, Transform, Writable } from 'stream';
 
 
 export interface BaseEvents {

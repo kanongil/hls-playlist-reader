@@ -271,7 +271,7 @@ describe('FsWatcher', () => {
 
     after(async () => {
 
-        await Fs.promises.rmdir(tmpDir, { recursive: true });
+        await Fs.promises.rm(tmpDir, { recursive: true });
     });
 
     describe('next()', () => {

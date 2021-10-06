@@ -350,7 +350,7 @@ describe('HlsPlaylistReader()', () => {
                 expect(playlists).to.have.length(6);
             }
             finally {
-                await Fs.promises.rmdir(tmpDir, { recursive: true });
+                await Fs.promises.rm(tmpDir, { recursive: true });
             }
         });
 
@@ -378,7 +378,7 @@ describe('HlsPlaylistReader()', () => {
             for await (const obj of reader) {
                 expect(obj).to.exist();
                 await Hoek.wait(20);
-                expect(reader._readableState.buffer).to.have.length(0);
+                expect(reader.readableBuffer).to.have.length(0);
 
                 state.firstMsn++;
                 if (state.firstMsn >= 5) {
