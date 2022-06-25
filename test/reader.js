@@ -248,11 +248,14 @@ describe('HlsPlaylistReader()', () => {
                 await Hoek.wait(1);
             }
 
-            r.destroy();
+            r.destroy(new Error('aborted'));
 
-            for await (const obj of r) {
-                playlists.push(obj);
-            }
+            await expect((async () => {
+
+                for await (const obj of r) {
+                    playlists.push(obj);
+                }
+            })()).to.reject('aborted');
 
             expect(playlists).to.have.length(0);
         });
@@ -605,14 +608,17 @@ describe('HlsPlaylistReader()', () => {
                     }
                 });
 
-                setTimeout(() => reader.destroy(), 50);
+                setTimeout(() => reader.destroy(new Error('aborted')), 50);
 
                 const playlists = [];
-                for await (const obj of reader) {
-                    playlists.push(obj);
+                await expect((async () => {
 
-                    state.firstMsn++;
-                }
+                    for await (const obj of reader) {
+                        playlists.push(obj);
+
+                        state.firstMsn++;
+                    }
+                })()).to.reject('aborted');
 
                 expect(playlists).to.have.length(1);
             });
