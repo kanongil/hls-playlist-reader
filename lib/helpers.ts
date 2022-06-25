@@ -122,12 +122,11 @@ export const performFetch = function (uri: URL | string, { byterange, probe = fa
 
             assert(meta);
 
-            const result = { meta, stream: probe ? undefined : stream };
-            if (!result.stream) {
-                stream.destroy();
+            if (probe) {
+                stream.resume();     // Ensure that we actually end
             }
 
-            return resolve(result);
+            process.nextTick(() => resolve({ meta, stream: probe ? undefined : stream }));
         };
 
         const onMeta = (meta: Meta) => {
