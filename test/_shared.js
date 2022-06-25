@@ -60,6 +60,7 @@ exports.provisionServer = () => {
 exports.provisionLiveServer = function (shared) {
 
     const server = new Hapi.Server({
+        host: '127.0.0.1',
         routes: {
             files: { relativeTo: Path.join(__dirname, 'fixtures') }
         }
