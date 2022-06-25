@@ -14,6 +14,7 @@ const M3U8Parse = require('m3u8parse');
 exports.provisionServer = () => {
 
     const server = new Hapi.Server({
+        host: '127.0.0.1',
         routes: { files: { relativeTo: Path.join(__dirname, 'fixtures') } }
     });
 

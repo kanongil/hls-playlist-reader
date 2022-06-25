@@ -49,7 +49,7 @@ describe('HlsPlaylistReader()', () => {
 
         it('creates a valid object', async () => {
 
-            const r = new HlsPlaylistReader('http://localhost:' + server.info.port + '/simple/500.m3u8', {
+            const r = new HlsPlaylistReader(server.info.uri + '/simple/500.m3u8', {
                 extensions: null,
                 maxStallTime: null
             });
@@ -66,7 +66,7 @@ describe('HlsPlaylistReader()', () => {
 
         it('supports URL objects', () => {
 
-            const url = 'http://localhost:' + server.info.port + '/simple/500.m3u8';
+            const url = server.info.uri + '/simple/500.m3u8';
             expect(new HlsPlaylistReader(new URL(url)).destroy()).to.be.instanceOf(HlsPlaylistReader);
         });
 
@@ -93,7 +93,7 @@ describe('HlsPlaylistReader()', () => {
 
     it('can be created through helper', () => {
 
-        const url = 'http://localhost:' + server.info.port + '/simple/500.m3u8';
+        const url = server.info.uri + '/simple/500.m3u8';
         expect(createReader(url).destroy()).to.be.instanceOf(HlsPlaylistReader);
         expect(createReader(new URL(url)).destroy()).to.be.instanceOf(HlsPlaylistReader);
     });
@@ -106,25 +106,25 @@ describe('HlsPlaylistReader()', () => {
 
     it('emits error for missing data', async () => {
 
-        const promise = readPlaylists(`http://localhost:${server.info.port}/notfound`);
+        const promise = readPlaylists(`${server.info.uri}/notfound`);
         await expect(promise).to.reject(Error, /Not Found/);
     });
 
     it('emits error for http error responses', async () => {
 
-        const promise = readPlaylists(`http://localhost:${server.info.port}/error`);
+        const promise = readPlaylists(`${server.info.uri}/error`);
         await expect(promise).to.reject(Error, /Internal Server Error/);
     });
 
     it('emits error on non-index responses', async () => {
 
-        const promise = readPlaylists(`http://localhost:${server.info.port}/simple/500.mp4`);
+        const promise = readPlaylists(`${server.info.uri}/simple/500.mp4`);
         await expect(promise).to.reject(Error, /Invalid MIME type/);
     });
 
     it('emits error on malformed index files', async () => {
 
-        const promise = readPlaylists(`http://localhost:${server.info.port}/simple/malformed.m3u8`);
+        const promise = readPlaylists(`${server.info.uri}/simple/malformed.m3u8`);
         await expect(promise).to.reject(M3U8Parse.ParserError);
     });
 
@@ -132,7 +132,7 @@ describe('HlsPlaylistReader()', () => {
 
         it('returns true before index is received', () => {
 
-            const reader = new HlsPlaylistReader('http://localhost:' + server.info.port + '/simple/500.m3u8');
+            const reader = new HlsPlaylistReader(server.info.uri + '/simple/500.m3u8');
             expect(reader.index).to.not.exist();
             expect(reader.canUpdate()).to.be.true();
             reader.destroy();
@@ -140,7 +140,7 @@ describe('HlsPlaylistReader()', () => {
 
         it('returns false when destroyed', () => {
 
-            const reader = new HlsPlaylistReader('http://localhost:' + server.info.port + '/simple/500.m3u8');
+            const reader = new HlsPlaylistReader(server.info.uri + '/simple/500.m3u8');
             reader.destroy();
             expect(reader.index).to.not.exist();
             expect(reader.canUpdate()).to.be.false();
@@ -151,7 +151,7 @@ describe('HlsPlaylistReader()', () => {
 
         it('stops after reading index', async () => {
 
-            const playlists = await readPlaylists(`http://localhost:${server.info.port}/simple/index.m3u8`);
+            const playlists = await readPlaylists(`${server.info.uri}/simple/index.m3u8`);
             expect(playlists).to.have.length(1);
             expect(playlists[0]).to.contain(['index', 'playlist', 'meta']);
             expect(playlists[0].playlist).to.not.exist();
@@ -181,7 +181,7 @@ describe('HlsPlaylistReader()', () => {
 
         it('stops after reading index', async () => {
 
-            const playlists = await readPlaylists(`http://localhost:${server.info.port}/simple/500.m3u8`);
+            const playlists = await readPlaylists(`${server.info.uri}/simple/500.m3u8`);
             expect(playlists).to.have.length(1);
             expect(playlists[0]).to.contain(['index', 'playlist', 'meta']);
 
