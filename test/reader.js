@@ -271,7 +271,7 @@ describe('HlsPlaylistReader()', () => {
 
         const prepareLiveReader = function (readerOptions = {}, state = {}) {
 
-            const reader = new HlsPlaylistReader(`http://localhost:${liveServer.info.port}/live/live.m3u8`, { ...readerOptions });
+            const reader = new HlsPlaylistReader(`${liveServer.info.uri}/live/live.m3u8`, { ...readerOptions });
             reader._intervals = [];
             reader.getUpdateInterval = function (updated) {
 
