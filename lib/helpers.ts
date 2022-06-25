@@ -46,7 +46,7 @@ const internals = {
                 maxSockets: 1,
                 maxFreeSockets: 1,
                 timeout: 0, // disable socket inactivity timeout
-                freeSocketTimeout: 2000 // free unused sockets after 2 seconds
+                freeSocketTimeout: 20_000 // free unused sockets after 20 seconds
             };
 
             agents = {
