@@ -517,10 +517,12 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
             this.#fetch = undefined;
             this.processing = false;
 
-            this._stallCheck(updated);
+            if (this.index?.isLive()) {
+                this._stallCheck(updated);
 
-            if (more && this.index?.isLive()) {
-                this._startUpdate(updated, errored);
+                if (more) {
+                    this._startUpdate(updated, errored);
+                }
             }
         }
     }
