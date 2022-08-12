@@ -10,6 +10,30 @@ import { assert as hoekAssert, ignore } from '@hapi/hoek';
 import Uristream = require('uristream');
 
 
+if (!globalThis.DOMException) {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { MessageChannel } = require('worker_threads');
+
+        const port = new MessageChannel().port1;
+        const ab = new ArrayBuffer(0);
+        port.postMessage(ab, [ab, ab]);
+    }
+    catch (err) {
+        (err as Error).constructor.name === 'DOMException' && (
+            (globalThis as any).DOMException = (err as DOMException).constructor
+        );
+    }
+}
+
+export class AbortError extends DOMException {
+    constructor(message: string) {
+
+        super(message, 'AbortError');
+    }
+}
+
+
 // eslint-disable-next-line func-style
 export function assert(condition: unknown, ...args: any[]): asserts condition {
 
@@ -83,7 +107,7 @@ export class Deferred<T> {
 }
 
 
-type AbortablePromise<T> = Promise<T> & { abort: () => void };
+type AbortablePromise<T> = Promise<T> & { abort: (reason?: Error) => void };
 
 export type FetchOptions = {
     byterange?: Byterange;
@@ -163,15 +187,21 @@ export const performFetch = function (uri: URL | string, { byterange, probe = fa
         stream.on('error', onFail);
     }) as any;
 
-    promise.abort = () => !stream.destroyed && stream.destroy(new Error('Aborted'));
+    promise.abort = (reason?: Error) => !stream.destroyed && stream.destroy(reason ?? new AbortError('Fetch was aborted'));
 
     return promise;
 };
 
 
+export interface ChangeWatcher {
+    next(timeoutMs?: number): PromiseLike<string> | string;
+    close(): void;
+}
+
+
 type FSWatcherEvents = 'rename' | 'change' | 'timeout';
 
-export class FsWatcher {
+export class FsWatcher implements ChangeWatcher {
 
     private _watcher: ReturnType<typeof watch>;
     private _last?: FSWatcherEvents;

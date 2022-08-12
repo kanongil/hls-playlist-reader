@@ -133,7 +133,7 @@ describe('performFetch()', () => {
         fetch.abort();
         fetch.abort();   // Do another to verify it is handled
 
-        await expect(fetch).to.reject('Aborted');
+        await expect(fetch).to.reject('Fetch was aborted');
     });
 
     it('can be aborted late', async () => {
@@ -152,7 +152,7 @@ describe('performFetch()', () => {
 
         fetch.abort();
 
-        await expect(promise).to.reject('Aborted');
+        await expect(promise).to.reject('Fetch was aborted');
     });
 
     it('supports "probe" option', async () => {
@@ -214,34 +214,39 @@ describe('performFetch()', () => {
         const blocking = 'test';
 
         const fetches = [];
-        for (let i = 0; i < 5; ++i) {
-            fetches.push((async () => {
+        try {
+            for (let i = 0; i < 5; ++i) {
+                fetches.push((async () => {
 
-                const { stream } = await performFetch('https://www.google.com', { blocking });
+                    const { stream } = await performFetch('https://www.google.com', { blocking });
 
-                const ready = process.hrtime.bigint();
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                for await (const _ of stream!) {}
-                const completed = process.hrtime.bigint();
+                    const ready = process.hrtime.bigint();
+                    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                    for await (const _ of stream!) {}
+                    const completed = process.hrtime.bigint();
 
-                return { ready, completed };
-            })());
+                    return { ready, completed };
+                })());
+            }
+
+            await performFetch('https://www.google.com', { probe: true });
+            const independentReady = process.hrtime.bigint();
+
+            expect(fetches).to.have.length(5);
+            const results = await Promise.all(fetches);
+
+            let last = { completed: BigInt(0) };
+            for (let i = 0; i < 5; ++i) {
+                expect(results[i].ready).to.be.greaterThan(last.completed);
+                expect(results[i].completed).to.be.greaterThan(results[i].ready);
+                last = results[i];
+            }
+
+            expect(independentReady).to.be.lessThan(results[4].completed);
         }
-
-        await performFetch('https://www.google.com', { probe: true });
-        const independentReady = process.hrtime.bigint();
-
-        expect(fetches).to.have.length(5);
-        const results = await Promise.all(fetches);
-
-        let last = { completed: BigInt(0) };
-        for (let i = 0; i < 5; ++i) {
-            expect(results[i].ready).to.be.greaterThan(last.completed);
-            expect(results[i].completed).to.be.greaterThan(results[i].ready);
-            last = results[i];
+        finally {
+            await Promise.all(fetches); // Don't leave unhandled promise rejections behind
         }
-
-        expect(independentReady).to.be.lessThan(results[4].completed);
     });
 });
 
@@ -443,7 +448,7 @@ describe('FsWatcher', () => {
                     watcher.close();
                 }
 
-                await expect(promise).to.reject('closed');
+                await expect(promise as Promise<any>).to.reject('closed');
             }
             finally {
                 await Fs.promises.unlink(fileUrl);
@@ -462,7 +467,7 @@ describe('FsWatcher', () => {
 
                 (watcher as any)._watcher.emit('error', new Error('fail'));
 
-                await expect(promise).to.reject('fail');
+                await expect(promise as Promise<any>).to.reject('fail');
                 expect(() => watcher.next()).to.throw('fail');
             }
             finally {
@@ -497,7 +502,7 @@ describe('FsWatcher', () => {
 
             watcher.close();
 
-            await expect(promise).to.reject('closed');
+            await expect(promise as Promise<any>).to.reject('closed');
             expect(() => watcher.next()).to.throw('closed');
         });
 

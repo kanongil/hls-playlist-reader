@@ -56,7 +56,7 @@ module.exports = {
         '@typescript-eslint'
     ],
     parserOptions: {
-        ecmaVersion: 2019
+        ecmaVersion: 2020
     },
     ignorePatterns: ['/lib/*.js', '/lib/*.d.ts'],
     overrides: [

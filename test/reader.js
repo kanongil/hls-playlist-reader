@@ -14,7 +14,7 @@ const M3U8Parse = require('m3u8parse');
 
 const Shared = require('./_shared');
 const { createReader, HlsPlaylistReader } = require('..');
-const { AttrList } = require('m3u8parse/lib/attrlist');
+const { HlsPlaylistFetcher } = require('../lib/playlist-reader');
 
 
 // Declare internals
@@ -128,25 +128,6 @@ describe('HlsPlaylistReader()', () => {
         await expect(promise).to.reject(M3U8Parse.ParserError);
     });
 
-    describe('canUpdate()', () => {
-
-        it('returns true before index is received', () => {
-
-            const reader = new HlsPlaylistReader(server.info.uri + '/simple/500.m3u8');
-            expect(reader.index).to.not.exist();
-            expect(reader.canUpdate()).to.be.true();
-            reader.destroy();
-        });
-
-        it('returns false when destroyed', () => {
-
-            const reader = new HlsPlaylistReader(server.info.uri + '/simple/500.m3u8');
-            reader.destroy();
-            expect(reader.index).to.not.exist();
-            expect(reader.canUpdate()).to.be.false();
-        });
-    });
-
     describe('master index', () => {
 
         it('stops after reading index', async () => {
@@ -244,7 +225,7 @@ describe('HlsPlaylistReader()', () => {
             const r = new HlsPlaylistReader('file://' + Path.join(__dirname, 'fixtures', '500.m3u8'));
             const playlists = [];
 
-            while (!r.playlist) {
+            while (!r.fetch.index) {
                 await Hoek.wait(1);
             }
 
@@ -272,10 +253,10 @@ describe('HlsPlaylistReader()', () => {
         const prepareLiveReader = function (readerOptions = {}, state = {}) {
 
             const reader = new HlsPlaylistReader(`${liveServer.info.uri}/live/live.m3u8`, { ...readerOptions });
-            reader._intervals = [];
-            reader.getUpdateInterval = function (updated) {
+            reader.fetch._intervals = [];
+            reader.fetch.getUpdateInterval = function (updated) {
 
-                this._intervals.push(HlsPlaylistReader.prototype.getUpdateInterval.call(this, updated));
+                this._intervals.push(HlsPlaylistFetcher.prototype.getUpdateInterval.call(this, updated));
                 return undefined;
             };
 
@@ -423,7 +404,7 @@ describe('HlsPlaylistReader()', () => {
 
             const closeEvent = Events.once(reader, 'close');
 
-            while (!reader.playlist) {
+            while (!reader.fetch.playlist) {
                 await Hoek.wait(1);
             }
 
@@ -683,10 +664,10 @@ describe('HlsPlaylistReader()', () => {
                 });
 
                 const errors = [];
-                reader.isRecoverableUpdateError = function (err) {
+                reader.fetch.isRecoverableUpdateError = function (err) {
 
                     errors.push(err);
-                    return HlsPlaylistReader.prototype.isRecoverableUpdateError.call(reader, err);
+                    return HlsPlaylistFetcher.prototype.isRecoverableUpdateError.call(reader, err);
                 };
 
                 const playlists = [];
@@ -741,14 +722,13 @@ describe('HlsPlaylistReader()', () => {
                     }
 
                     if (!index.ended) {
-                        expect(reader.hints.part).to.exist();
+                        expect(reader.fetch.playlist.preloadHints.part).to.exist();
                     }
 
                     playlists.push(obj);
                 }
 
                 expect(playlists).to.have.length(50);
-                expect(reader.hints.part).to.not.exist();
             });
 
             it('ignores LL parts when lowLatency=false', async () => {
@@ -757,45 +737,11 @@ describe('HlsPlaylistReader()', () => {
 
                 const playlists = [];
                 for await (const obj of reader) {
-                    expect(reader.hints.part).to.not.exist();
+                    expect(reader.fetch.playlist.preloadHints.part).to.not.exist();
                     playlists.push(obj);
                 }
 
                 expect(playlists.length).to.equal(13);
-            });
-
-            it('handles weird hint changes (or no change)', async () => {
-
-                const hints = new Set();
-                const { reader, state } = prepareLlReader({}, { partIndex: 4, end: { msn: 15, part: 3 } }, (query) => {
-
-                    const index = genLlIndex(query, state);
-
-                    let hint;
-
-                    if (state.partIndex === 1 || state.partIndex === 2) {
-                        hint = new AttrList({ type: 'PART', uri: '"a"' });
-                    }
-                    else if (state.partIndex === 3) {
-                        hint = new AttrList({ type: 'PART', uri: '"a"', 'byterange-start': '0' });
-                    }
-                    else if (state.partIndex === 4) {
-                        hint = new AttrList({ type: 'PART', uri: '"a"', 'byterange-start': '0', 'byterange-length': '10' });
-                    }
-
-                    index.meta.preload_hints = hint ? [hint] : undefined;
-
-                    return index;
-                });
-
-                const playlists = [];
-                for await (const obj of reader) {
-                    playlists.push(obj);
-                    hints.add(reader.hints);
-                }
-
-                expect(playlists).to.have.length(25);
-                expect(hints.size).to.equal(19);
             });
         });
 

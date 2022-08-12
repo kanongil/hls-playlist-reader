@@ -8,54 +8,22 @@ import { Boom, internal } from '@hapi/boom';
 import { wait } from '@hapi/hoek';
 import M3U8Parse, { AttrList, MediaPlaylist, MediaSegment, MasterPlaylist, ParserError } from 'm3u8parse';
 
-import { assert, Byterange, FsWatcher, performFetch, FetchOptions } from './helpers';
+import { AbortError, assert, Byterange, ChangeWatcher, FsWatcher, performFetch, FetchOptions } from './helpers';
 import { BaseEvents, TypedEmitter, TypedReadable } from './raw/typed-readable';
 
 
-type Hint = {
-    uri: string;
-    byterange?: {
-        offset: number;
-        length?: number;
-    };
-};
+const internals = {};
 
 
-const internals = {
-    emptyHints: Object.freeze({ part: undefined, map: undefined }),
-
-    isSameHint(h1?: Hint, h2?: Hint): boolean {
-
-        if (h1 === undefined || h2 === undefined) {
-            return h1 === h2;
-        }
-
-        if (h1.uri !== h2.uri) {
-            return false;
-        }
-
-        if (h1.byterange && h2.byterange) {
-            if (h1.byterange.offset !== h2.byterange.offset ||
-                h1.byterange.length !== h2.byterange.length) {
-                return false;
-            }
-        }
-        else if (h1.byterange !== h2.byterange) {
-            return false;
-        }
-
-        return true;
-    }
-};
-
-
-export type HlsPlaylistReaderOptions = {
+export type HlsPlaylistFetcherOptions = {
     /** True to handle LL-HLS streams */
     lowLatency?: boolean;
 
     maxStallTime?: number;
 
     extensions?: { [K: string]: boolean };
+
+    onProblem?: (err: Error) => void;
 };
 
 export type PartData = {
@@ -184,7 +152,7 @@ export type HlsIndexMeta = {
     modified?: Date;
 };
 
-export interface PlaylistReaderObject {
+export interface PlaylistObject {
     index: Readonly<MasterPlaylist | MediaPlaylist>;
     playlist?: ParsedPlaylist;
     meta: Readonly<HlsIndexMeta>;
@@ -196,11 +164,7 @@ interface IHlsPlaylistReaderEvents {
 }
 
 
-/**
- * Reads an HLS media playlist, and emits updates.
- * Live & Event playlists are refreshed as needed, and expired segments are dropped when backpressure is applied.
- */
-export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, TypedReadable<Readonly<PlaylistReaderObject>>()) {
+export class HlsPlaylistFetcher {
 
     static readonly indexMimeTypes = new Set([
         'application/vnd.apple.mpegurl',
@@ -215,43 +179,37 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
         429 // Too Many Requests
     ]);
 
-    readonly url: URL;
+    url: URL;
+
     lowLatency: boolean;
-    readonly extensions: HlsPlaylistReaderOptions['extensions'];
+    readonly extensions: HlsPlaylistFetcherOptions['extensions'];
     stallAfterMs: number;
 
     readonly baseUrl: string;
     readonly modified?: Date;
     readonly updated?: Date;
-    processing = false;
 
     #rejected = 0;
     #index?: MediaPlaylist | MasterPlaylist;
     #playlist?: ParsedPlaylist;
-    #currentHints: ParsedPlaylist['preloadHints'] = internals.emptyHints;
     #fetch?: ReturnType<typeof performFetch>;
-    #watcher?: FsWatcher;
+    #watcher?: ChangeWatcher;
     #stallTimer?: NodeJS.Timeout;
+    #latest?: Promise<PlaylistObject>;
+    #cancelled?: Error;
 
-    constructor(uri: URL | string, options: HlsPlaylistReaderOptions = {}) {
+    constructor(uri: URL | string, options: HlsPlaylistFetcherOptions = {}) {
 
-        super({ objectMode: true, highWaterMark: 0, autoDestroy: true, emitClose: true } as ReadableOptions);
-
-        this.url = new URL(uri as string);
+        this.url = new URL(uri as any);
         this.baseUrl = this.url.href;
 
         this.lowLatency = !!options.lowLatency;
-
         this.stallAfterMs = options.maxStallTime ?? Infinity;
-
         this.extensions = options.extensions ?? {};
 
-        this._start();
-    }
-
-    get index(): Readonly<MediaPlaylist | MasterPlaylist> | undefined {
-
-        return this.#index;
+        if (options.onProblem) {
+            this.onProblem = options.onProblem;
+        }
     }
 
     get playlist(): ParsedPlaylist | undefined {
@@ -259,21 +217,59 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
         return this.#playlist;
     }
 
-    get hints(): ParsedPlaylist['preloadHints'] {
+    // Primary API methods
 
-        return this.#currentHints;
+    /** Fetch the current index. */
+    index(): Promise<PlaylistObject> {
+
+        if (!this.#latest) {
+            if (this.url.protocol === 'file:') {
+                this.#watcher = new FsWatcher(this.url);
+            }
+
+            this.#latest = this._updateIndex(this._createFetch(this.url));
+        }
+
+        return this.#latest;
     }
 
-    validateIndexMeta(meta: FetchResult['meta']): void | never {
+    /** Wait an appropriate delay and fetch a newly updated index. Only one update can be pending. */
+    update(): Promise<PlaylistObject> {
 
-        // Check for valid mime type
+        assert(this.#index, 'An initial index() must have be sucessfully fetched');
+        assert(this.#index?.isLive(), 'Playlist type cannot be updated');
 
-        if (!HlsPlaylistReader.indexMimeTypes.has(meta.mime.toLowerCase()) &&
-            meta.url.indexOf('.m3u8', meta.url.length - 5) === -1 &&
-            meta.url.indexOf('.m3u', meta.url.length - 4) === -1) {
+        this.#cancelled = undefined;
 
-            throw new Error('Invalid MIME type: ' + meta.mime);
+        this._updateStallTimer();
+        this.#latest = this._next().finally(() => {
+
+            this._updateStallTimer(false);
+        });
+
+        return this.#latest;
+    }
+
+    /** Check if current index can be updated. */
+    canUpdate(): boolean {
+
+        return !this.#cancelled && !!this.#index?.isLive();
+    }
+
+    /** Cancel pending index fetch or update wait. They will (eventually) fail with reason or an AbortError. */
+    cancel(reason?: Error): void {
+
+        if (this.#cancelled) {
+            return;             // Ignore cancels when already cancelled
         }
+
+        this.#cancelled = reason ?? new AbortError('Index update was aborted');
+        this.#fetch?.abort(reason);
+        this.#watcher?.close();
+        this.#watcher = undefined;
+
+        this._updateStallTimer(false);
+        // TODO: cancel update wait
     }
 
     /**
@@ -282,9 +278,9 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
      * The test is quite lenient since this will only be called for resources that have previously
      * been accessed without an error.
      */
-    isRecoverableUpdateError(err: Error): boolean {
+    isRecoverableUpdateError(err: unknown): boolean {
 
-        const { recoverableCodes } = HlsPlaylistReader;
+        const { recoverableCodes } = HlsPlaylistFetcher;
 
         if (err instanceof Boom) {
             const boom: Boom & { isBlocking?: boolean } = err;
@@ -307,21 +303,35 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
         return false;
     }
 
-    canUpdate(): boolean {
+    // Overrideable methods for customized handling
 
-        return !this.destroyed && (!this.index || this.index.isLive());
+    protected onProblem(err: Error) {
+
+        err;      // Ignore by default
+    }
+
+    protected validateIndexMeta(meta: FetchResult['meta']): void | never {
+
+        // Check for valid mime type
+
+        if (!HlsPlaylistFetcher.indexMimeTypes.has(meta.mime.toLowerCase()) &&
+            meta.url.indexOf('.m3u8', meta.url.length - 5) === -1 &&
+            meta.url.indexOf('.m3u', meta.url.length - 4) === -1) {
+
+            throw new Error('Invalid MIME type: ' + meta.mime);
+        }
     }
 
     protected preprocessIndex<T extends MediaPlaylist | MasterPlaylist>(index: T): T | undefined {
 
         // Reject "old" index updates (eg. from CDN cached response & hitting multiple endpoints)
 
-        if (this.index) {
-            assert(this.index instanceof MediaPlaylist);
+        if (this.#index) {
+            assert(this.#index instanceof MediaPlaylist);
 
             // TODO: only test when fetched without blocking request
 
-            if (MediaPlaylist.cast(index).lastMsn(true) < this.index.lastMsn(true)) {
+            if (MediaPlaylist.cast(index).lastMsn(true) < this.#index.lastMsn(true)) {
                 if (this.#rejected < 2) {
                     this.#rejected++;
                     throw internal('Rejected update from the past');
@@ -350,85 +360,26 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
         return updateInterval;
     }
 
-    // Overrides
-
-    _read(): void {
-
-        if (!this.processing && this.canUpdate()) {
-            this._startUpdate();
-        }
-    }
-
-    _destroy(err: Error | null, cb: unknown): void {
-
-        if (this.#fetch) {
-            this.#fetch.abort();
-        }
-
-        if (this.#watcher) {
-            this.#watcher.close();
-            this.#watcher = undefined;
-        }
-
-        clearTimeout(this.#stallTimer!);
-
-        return super._destroy(err, cb as any);
-    }
-
     // Private methods
 
     /**
-     * Destroys reader if method has not been called with updated === true for options.stallAfterMs
+     * Should be called after every non-cancellable await to throw the cancel() reason.
      */
-    private _stallCheck(updated = false): void | never {
+    private _cancelCheck(): void {
 
-        if (updated) {
-            clearTimeout(this.#stallTimer!);
-            if (this.stallAfterMs !== Infinity) {
-                this.#stallTimer = setTimeout(() => {
-
-                    this.destroy(new Error('Index update stalled'));
-                }, this.stallAfterMs);
-            }
+        if (this.#cancelled) {
+            throw this.#cancelled;
         }
     }
 
-    private _updateHints(playlist: ParsedPlaylist): boolean {
+    /**
+     * Cancels reader if method has not been called for options.stallAfterMs
+     */
+    private _updateStallTimer(enabled = true): void | never {
 
-        const hints = this.lowLatency ? playlist.preloadHints : internals.emptyHints;
-
-        if (internals.isSameHint(hints.part, this.#currentHints.part)) {
-            return false;
-        }
-
-        this.#currentHints = hints;
-        return true;
-    }
-
-    private _pushUpdate(meta: HlsIndexMeta): boolean {
-
-        assert(!this.readableEnded);
-        assert(this.index, 'Missing index');
-
-        this.push({ index: this.index, playlist: this.#playlist, meta });
-
-        return false; // Always stall
-    }
-
-    private _updateErrorHandler(err: Error): void {
-
-        if (!this.destroyed) {
-            if (!this.isRecoverableUpdateError(err)) {
-                this.destroy(err);
-                return;
-            }
-
-            try {
-                this.emit<'problem'>('problem', err);
-            }
-            catch (err: any) {
-                this.destroy(err);
-            }
+        clearTimeout(this.#stallTimer!);
+        if (enabled && this.stallAfterMs !== Infinity) {
+            this.#stallTimer = setTimeout(() => this.cancel(new Error('Index update stalled')), this.stallAfterMs);
         }
     }
 
@@ -439,35 +390,50 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
         return (this.#fetch = performFetch(url, Object.assign({ timeout: 30 * 1000 }, options)));
     }
 
-    private _start() {
+    private async _next(): Promise<PlaylistObject> {
 
-        // Prepare watcher in case it is needed
+        const playlist = this.#playlist;
+        let wasUpdated = true;
+        let wasError = false;
 
-        if (this.url.protocol === 'file:') {
-            this.#watcher = new FsWatcher(this.url);
+        assert(playlist, 'Missing playlist');
+
+        for (;;) {
+
+            // Keep retrying until success or an unrecoverable error
+
+            try {
+                const res = await this._delayedUpdate(playlist, wasUpdated, wasError);
+                assert(!res.index.master, 'Update must return a media playlist');
+                if (!this.canUpdate() || !playlist.isSameHead(res.index)) {
+                    return res;
+                }
+
+                wasUpdated = false;
+            }
+            catch (err) {
+                this._cancelCheck();
+
+                if (!(err instanceof Error) ||
+                    !this.isRecoverableUpdateError(err)) {
+
+                    throw err;
+                }
+
+                try {
+                    this.onProblem(err);
+                }
+                catch (err) {
+                    throw err;
+                }
+
+                wasError = true;
+            }
         }
-
-        this.processing = true;
-        this._performUpdate(this._createFetch(this.url)).catch(this.destroy.bind(this));
     }
 
-    private _startUpdate(wasUpdated = true, wasError = false) {
+    private async _updateIndex(fetchPromise: ReturnType<typeof performFetch>): Promise<PlaylistObject> {
 
-        assert(this.#playlist, 'Missing playlist');
-        assert(!this.destroyed, 'destroyed');
-
-        this.processing = true;
-        this._delayedUpdate(this.#playlist, wasUpdated, wasError).catch(this._updateErrorHandler.bind(this));
-    }
-
-    /**
-     * Runs in a loop until there are no more updates, or stream is destroyed
-     */
-    private async _performUpdate(fetchPromise: ReturnType<typeof performFetch>, fromIndex?: Readonly<MediaPlaylist>): Promise<void> {
-
-        let updated = !fromIndex;
-        let errored = false;
-        let more = true;
         try {
             // eslint-disable-next-line no-var
             var { meta, stream } = await fetchPromise;
@@ -481,56 +447,29 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
             (this as any).baseUrl = meta.url;
             (this as any).modified = meta.modified !== null ? new Date(meta.modified) : undefined;
             this.#index = this.preprocessIndex(rawIndex);
-
-            assert(this.index, 'Missing index');
-
-            updated || (updated = !this.canUpdate());      // If there are no more updates, then we always need to push the index
-
-            this.#playlist = !this.index.master ? new ParsedPlaylist(this.index, { noLowLatency: !this.lowLatency }) : undefined;
-            if (this.#playlist) {
-                if (fromIndex && this.canUpdate()) {
-                    updated || (updated = !this.#playlist.isSameHead(fromIndex));
-                }
-
-                updated = this._updateHints(this.#playlist) || updated; // No ||= since the update has a side-effect, and will not be called if updated is already set
-            }
-
-            more = !updated || this._pushUpdate({ url: meta.url, modified: this.modified, updated: this.updated! });
-
-            if (!this.canUpdate()) {
-                this.push(null);
-                return;
-            }
+            this.#playlist = this.#index && !this.#index.master ? new ParsedPlaylist(this.#index, { noLowLatency: !this.lowLatency }) : undefined;
+            assert(this.#index, 'Missing index');
         }
         catch (err) {
             if (stream) {
                 stream.destroy();
             }
 
-            errored = true;
+            this._cancelCheck();
 
-            if (!this.destroyed) {
-                throw err;
-            }
+            throw err;
         }
         finally {
             this.#fetch = undefined;
-            this.processing = false;
-
-            if (this.index?.isLive()) {
-                this._stallCheck(updated);
-
-                if (more) {
-                    this._startUpdate(updated, errored);
-                }
-            }
         }
+
+        return { index: this.#index!, playlist: this.#playlist, meta: { url: meta.url, modified: this.modified, updated: this.updated! } };
     }
 
     /**
      * Calls _performUpdate() with corrected url, after an approriate delay
      */
-    private async _delayedUpdate(fromPlaylist: ParsedPlaylist, wasUpdated = true, wasError = false): ReturnType<HlsPlaylistReader['_performUpdate']> {
+    private async _delayedUpdate(fromPlaylist: ParsedPlaylist, wasUpdated = true, wasError = false): Promise<PlaylistObject> {
 
         const url = new URL(this.url as any);
         if (url.protocol === 'data:') {
@@ -567,13 +506,14 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
                 try {
                     await this.#watcher.next(delayMs);
                 }
-                catch (err: any) {
+                catch (err) {
                     /* $lab:coverage:off$ */
-                    if (!this.destroyed) {
-                        this.emit<'problem'>('problem', err);
-                    }
-
                     this.#watcher = undefined;
+
+                    if (!this.#cancelled) {
+                        assert(err instanceof Error);
+                        this.onProblem(err);
+                    }
                     /* $lab:coverage:on$ */
                 }
             }
@@ -581,18 +521,66 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
                 await wait(delayMs);
             }
 
-            assert(!this.destroyed, 'destroyed');
+            this._cancelCheck();
         }
 
         try {
-            return await this._performUpdate(this._createFetch(url, { blocking }), fromPlaylist.index);
+            return await this._updateIndex(this._createFetch(url, { blocking }));
         }
         catch (err) {
             if (err instanceof Boom) {
-                throw Object.assign(err, { isBlocking: !!blocking });
+                Object.assign(err, { isBlocking: !!blocking });
             }
 
             throw err;
         }
+    }
+}
+
+
+/**
+ * Reads an HLS media playlist, and emits updates.
+ * Live & Event playlists are refreshed as needed, and expired segments are dropped when backpressure is applied.
+ */
+export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, TypedReadable<Readonly<PlaylistObject>>()) {
+
+    fetch?: HlsPlaylistFetcher;
+
+    index?: Readonly<MasterPlaylist | MediaPlaylist>;
+
+    constructor(uri: URL | string, options: Omit<HlsPlaylistFetcherOptions, 'onProblem'> = {}) {
+
+        super({ objectMode: true, highWaterMark: 0, autoDestroy: true, emitClose: true } as ReadableOptions);
+
+        this.fetch = new HlsPlaylistFetcher(uri, { ...options, onProblem: (err) => this.emit('problem', err) });
+
+        // Pre-fetch the initial index
+
+        this.fetch.index().catch(this.destroy.bind(this));
+    }
+
+    // Overrides
+
+    _read(): void {
+
+        const fetcher = this.index ? this.fetch!.update() : this.fetch!.index();
+
+        fetcher.then((res) => {
+
+            this.index = res.index;
+            this.push(res);
+
+            if (!this.fetch!.canUpdate()) {
+                this.push(null);
+            }
+        }, this.destroy.bind(this));
+    }
+
+    _destroy(err: Error | null, cb: unknown): void {
+
+        this.fetch!.cancel(err || undefined);
+        this.fetch = undefined;      // Unlink reference
+
+        return super._destroy(err, cb as any);
     }
 }
