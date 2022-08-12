@@ -3,7 +3,7 @@ import * as Path from 'path';
 import { expect } from '@hapi/code';
 import * as Lab from '@hapi/lab';
 
-import { HlsPlaylistFetcher } from '../lib/playlist-reader';
+import { HlsPlaylistFetcher } from '../lib/fetcher';
 
 
 const internals = {
@@ -17,6 +17,36 @@ const { describe, it } = lab;
 
 
 describe('HlsPlaylistFetcher', () => {
+
+    describe('update()', () => {
+
+        it('throws if called before index()', () => {
+
+            const fetcher = new HlsPlaylistFetcher(`file://${internals.fixtures}/live.m3u8`);
+            expect(() => fetcher.update()).to.throw('An initial index() must have been sucessfully fetched');
+        });
+
+        it('throws if called before index() returns', async () => {
+
+            const fetcher = new HlsPlaylistFetcher(`file://${internals.fixtures}/live.m3u8`);
+            const promise = fetcher.index();
+
+            expect(() => fetcher.update()).to.throw('An initial index() must have been sucessfully fetched');
+
+            await promise;
+        });
+
+        it('throws if called during an update()', async () => {
+
+            const fetcher = new HlsPlaylistFetcher(`file://${internals.fixtures}/live.m3u8`);
+            await fetcher.index();
+
+            const promise = fetcher.update();
+            expect(() => fetcher.update()).to.throw('An update is already being fetched');
+            fetcher.cancel();
+            await expect(promise).to.reject();
+        });
+    });
 
     describe('canUpdate()', () => {
 

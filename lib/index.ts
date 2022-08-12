@@ -1,6 +1,7 @@
-import { URL } from 'url';
+import type { URL } from 'url';
+import type { HlsPlaylistFetcherOptions } from './fetcher';
 
-import { HlsPlaylistReader, HlsPlaylistFetcherOptions } from './playlist-reader';
+import { HlsPlaylistReader } from './playlist-reader';
 
 const createReader = function (uri: URL | string, options?: HlsPlaylistFetcherOptions): HlsPlaylistReader {
 
@@ -9,6 +10,6 @@ const createReader = function (uri: URL | string, options?: HlsPlaylistFetcherOp
 
 export { createReader, HlsPlaylistReader };
 export type { HlsPlaylistFetcherOptions };
-export type { HlsIndexMeta } from './playlist-reader';
+export type { HlsIndexMeta } from './fetcher';
 
 export default createReader;

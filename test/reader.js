@@ -14,7 +14,7 @@ const M3U8Parse = require('m3u8parse');
 
 const Shared = require('./_shared');
 const { createReader, HlsPlaylistReader } = require('..');
-const { HlsPlaylistFetcher } = require('../lib/playlist-reader');
+const { HlsPlaylistFetcher } = require('../lib/fetcher');
 
 
 // Declare internals
