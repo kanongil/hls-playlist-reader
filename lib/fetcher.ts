@@ -1,13 +1,10 @@
-import type { FetchResult } from './helpers';
-
-import { Stream } from 'stream';
 import { URL } from 'url';
 
 import { Boom, internal } from '@hapi/boom';
 import { wait } from '@hapi/hoek';
 import M3U8Parse, { AttrList, MediaPlaylist, MediaSegment, MasterPlaylist, ParserError } from 'm3u8parse';
 
-import { AbortError, assert, Byterange, ChangeWatcher, FsWatcher, performFetch, FetchOptions } from './helpers';
+import { AbortError, assert, Byterange, ChangeWatcher, FsWatcher, performFetch, readFetchData, FetchOptions } from './helpers';
 
 
 export type HlsPlaylistFetcherOptions = {
@@ -141,6 +138,15 @@ export class ParsedPlaylist {
 }
 
 
+type FetchUrlResult = {
+    content: string;
+    meta: {
+        url: string;
+        mime: string;
+        modified?: Date | null;
+    };
+};
+
 export type HlsIndexMeta = {
     url: string;
     updated: Date;
@@ -217,7 +223,7 @@ export class HlsPlaylistFetcher {
                 this.#watcher = new FsWatcher(this.url);
             }
 
-            this.#latest = this._updateIndex(this._createFetch(this.url));
+            this.#latest = this._updateIndex(this._fetchIndexFrom(this.url));
         }
 
         return this.#latest;
@@ -303,7 +309,7 @@ export class HlsPlaylistFetcher {
         err;      // Ignore by default
     }
 
-    protected validateIndexMeta(meta: FetchResult['meta']): void | never {
+    protected validateIndexMeta(meta: FetchUrlResult['meta']): void | never {
 
         // Check for valid mime type
 
@@ -353,6 +359,16 @@ export class HlsPlaylistFetcher {
         return updateInterval;
     }
 
+    protected performFetch(url: URL, options?: FetchOptions) {
+
+        return performFetch(url, options);
+    }
+
+    protected readFetchContent(fetch: Awaited<ReturnType<typeof performFetch>>) {
+
+        return readFetchData(fetch);
+    }
+
     // Private methods
 
     /**
@@ -376,11 +392,29 @@ export class HlsPlaylistFetcher {
         }
     }
 
-    private _createFetch(url: URL, options?: FetchOptions): ReturnType<typeof performFetch> {
+    private _fetchIndexFrom(url: URL, options?: FetchOptions): Promise<FetchUrlResult> {
 
+        let meta: FetchUrlResult['meta'];
         assert(!this.#fetch, 'Already fetching');
 
-        return (this.#fetch = performFetch(url, Object.assign({ timeout: 30 * 1000 }, options)));
+        const fetch = this.#fetch = this.performFetch(url, Object.assign({ timeout: 30 * 1000 }, options));
+        return this.#fetch
+            .then((result) => {
+
+                meta = result.meta;
+                this.validateIndexMeta(meta);
+
+                return this.readFetchContent(result).catch((err) => {
+
+                    fetch.abort(err);
+                    throw err;
+                });
+            })
+            .then((content) => ({ meta, content }))
+            .finally(() => {
+
+                this.#fetch = undefined;
+            });
     }
 
     private async _next(): Promise<PlaylistObject> {
@@ -425,35 +459,27 @@ export class HlsPlaylistFetcher {
         }
     }
 
-    private async _updateIndex(fetchPromise: ReturnType<typeof performFetch>): Promise<PlaylistObject> {
+    private async _updateIndex(fetchPromise: Promise<FetchUrlResult>): Promise<PlaylistObject> {
 
         try {
             // eslint-disable-next-line no-var
-            var { meta, stream } = await fetchPromise;
+            var { meta, content } = await fetchPromise;
             const updatedAt = new Date();
 
-            this.validateIndexMeta(meta);
-
-            const rawIndex = await M3U8Parse(stream as Stream, { extensions: this.extensions });
+            const rawIndex = M3U8Parse(content, { extensions: this.extensions });
 
             (this as any).updated = updatedAt;
             (this as any).baseUrl = meta.url;
-            (this as any).modified = meta.modified !== null ? new Date(meta.modified) : undefined;
+            // eslint-disable-next-line no-eq-null, eqeqeq
+            (this as any).modified = meta.modified != null ? new Date(meta.modified) : undefined;
             this.#index = this.preprocessIndex(rawIndex);
             this.#playlist = this.#index && !this.#index.master ? new ParsedPlaylist(this.#index, { noLowLatency: !this.lowLatency }) : undefined;
             assert(this.#index, 'Missing index');
         }
         catch (err) {
-            if (stream) {
-                stream.destroy();
-            }
-
             this._cancelCheck();
 
             throw err;
-        }
-        finally {
-            this.#fetch = undefined;
         }
 
         return { index: this.#index!, playlist: this.#playlist, meta: { url: meta.url, modified: this.modified, updated: this.updated! } };
@@ -518,7 +544,7 @@ export class HlsPlaylistFetcher {
         }
 
         try {
-            return await this._updateIndex(this._createFetch(url, { blocking }));
+            return await this._updateIndex(this._fetchIndexFrom(url, { blocking }));
         }
         catch (err) {
             if (err instanceof Boom) {

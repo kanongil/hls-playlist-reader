@@ -680,7 +680,7 @@ describe('HlsPlaylistReader()', () => {
 
                 expect(playlists).to.have.length(5);
                 expect(errors).to.have.length(4);
-                expect(errors[0]).to.have.error(M3U8Parse.ParserError, 'Missing required #EXTM3U header');
+                expect(errors[0]).to.have.error(M3U8Parse.ParserError, 'No line data');
                 expect(errors[1]).to.have.error(Boom.Boom, 'Not Found');
                 expect(errors[2]).to.have.error(Boom.Boom, 'Service Unavailable');
                 expect(errors[3]).to.shallow.equal(err);

@@ -1,4 +1,4 @@
-import type { Readable } from 'stream';
+import { Readable, Stream } from 'stream';
 import type { Meta } from 'uristream/lib/uri-reader';
 
 import { watch } from 'fs';
@@ -190,6 +190,21 @@ export const performFetch = function (uri: URL | string, { byterange, probe = fa
     promise.abort = (reason?: Error) => !stream.destroyed && stream.destroy(reason ?? new AbortError('Fetch was aborted'));
 
     return promise;
+};
+
+
+export const readFetchData = async function ({ stream }: FetchResult) {
+
+    assert(stream, 'Must have a stream');
+
+    let content = '';
+
+    stream.setEncoding('utf-8');
+    for await (const chunk of stream) {
+        content += chunk;
+    }
+
+    return content;
 };
 
 
