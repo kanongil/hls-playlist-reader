@@ -257,12 +257,12 @@ describe('FsWatcher', () => {
     const createWatcher = async function (uri: URL | string) {
 
         if (Os.platform() === 'darwin') {
-            await wait(10); // macOS needs time to settle before starting the watcher...
+            await wait(20); // macOS needs time to settle before starting the watcher...
         }
 
         const watcher = new FsWatcher(uri);
         if (Os.platform() === 'darwin') {
-            await wait(10); // macOS needs time to setup the watcher...
+            await wait(20); // macOS needs time to setup the watcher...
         }
 
         return watcher;
@@ -421,7 +421,7 @@ describe('FsWatcher', () => {
                 const promise = watcher.next(20);
 
                 expect(await Promise.race([promise, wait(1, 'waiting')])).to.equal('waiting');
-                await wait(25);
+                await wait(40);
                 expect(await Promise.race([promise, wait(1, 'waiting')])).to.equal('timeout');
             }
             finally {
