@@ -11,8 +11,6 @@ export type HlsPlaylistFetcherOptions = {
     /** True to handle LL-HLS streams */
     lowLatency?: boolean;
 
-    maxStallTime?: number;
-
     extensions?: { [K: string]: boolean };
 
     onProblem?: (err: Error) => void;
@@ -178,7 +176,6 @@ export class HlsPlaylistFetcher {
 
     lowLatency: boolean;
     readonly extensions: HlsPlaylistFetcherOptions['extensions'];
-    stallAfterMs: number;
 
     readonly baseUrl: string;
     readonly modified?: Date;
@@ -200,7 +197,6 @@ export class HlsPlaylistFetcher {
         this.baseUrl = this.url.href;
 
         this.lowLatency = !!options.lowLatency;
-        this.stallAfterMs = options.maxStallTime ?? Infinity;
         this.extensions = options.extensions ?? {};
 
         if (options.onProblem) {
@@ -230,7 +226,7 @@ export class HlsPlaylistFetcher {
     }
 
     /** Wait an appropriate delay and fetch a newly updated index. Only one update can be pending. */
-    update(): Promise<PlaylistObject> {
+    update({ timeout }: { timeout?: number } = {}): Promise<PlaylistObject> {
 
         assert(!this.#pending, 'An update is already being fetched');
         assert(this.#index, 'An initial index() must have been sucessfully fetched');
@@ -238,13 +234,14 @@ export class HlsPlaylistFetcher {
 
         this.#cancelled = undefined;
 
-        this._updateStallTimer();
-        this.#pending = this._next().finally(() => {
+        this._updateStallTimer(timeout);
+        this.#pending = this._next()
+            .finally(() => {
 
-            this.#latest = this.#pending;
-            this.#pending = undefined;
-            this._updateStallTimer(false);
-        });
+                this.#latest = this.#pending;
+                this.#pending = undefined;
+                this._updateStallTimer();
+            });
 
         return this.#pending;
     }
@@ -267,7 +264,7 @@ export class HlsPlaylistFetcher {
         this.#watcher?.close();
         this.#watcher = undefined;
 
-        this._updateStallTimer(false);
+        this._updateStallTimer();
         // TODO: cancel update wait
     }
 
@@ -381,14 +378,13 @@ export class HlsPlaylistFetcher {
         }
     }
 
-    /**
-     * Cancels reader if method has not been called for options.stallAfterMs
+     * Cancels reader after timeout ms.
      */
-    private _updateStallTimer(enabled = true): void | never {
+    private _updateStallTimer(timeout?: number): void | never {
 
         clearTimeout(this.#stallTimer!);
-        if (enabled && this.stallAfterMs !== Infinity) {
-            this.#stallTimer = setTimeout(() => this.cancel(new Error('Index update stalled')), this.stallAfterMs);
+        if (timeout !== undefined && timeout !== Infinity) {
+            this.#stallTimer = setTimeout(() => this.cancel(new Error('Index update stalled')), timeout);
         }
     }
 

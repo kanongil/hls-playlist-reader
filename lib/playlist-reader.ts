@@ -12,21 +12,27 @@ interface IHlsPlaylistReaderEvents {
     problem(err: Readonly<Error>): void;
 }
 
+export type HlsPlaylistReaderOptions = Omit<HlsPlaylistFetcherOptions, 'onProblem'> & {
+    maxStallTime?: number;
+};
+
 /**
  * Reads an HLS media playlist, and emits updates.
  * Live & Event playlists are refreshed as needed, and expired segments are dropped when backpressure is applied.
  */
 export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, TypedReadable<Readonly<PlaylistObject>>()) {
 
+    stallAfterMs: number;
     fetch?: HlsPlaylistFetcher;
 
     index?: Readonly<MasterPlaylist | MediaPlaylist>;
 
-    constructor(uri: URL | string, options: Omit<HlsPlaylistFetcherOptions, 'onProblem'> = {}) {
+    constructor(uri: URL | string, options: HlsPlaylistReaderOptions = {}) {
 
         super({ objectMode: true, highWaterMark: 0, autoDestroy: true, emitClose: true } as ReadableOptions);
 
         this.fetch = new HlsPlaylistFetcher(uri, { ...options, onProblem: (err) => this.emit('problem', err) });
+        this.stallAfterMs = options.maxStallTime ?? Infinity;
 
         // Pre-fetch the initial index
 
@@ -37,7 +43,7 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
 
     _read(): void {
 
-        const fetcher = this.index ? this.fetch!.update() : this.fetch!.index();
+        const fetcher = this.index ? this.fetch!.update({ timeout: this.stallAfterMs }) : this.fetch!.index();
 
         fetcher.then((res) => {
 
