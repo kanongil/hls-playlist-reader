@@ -53,7 +53,7 @@ class AbortSignalInternal extends EventTarget {
 /** Simplified AbortController for internal usage only */
 class AbortControllerInternal {
     signal = new AbortSignalInternal();
-    abort(reason: Error) {
+    abort(reason?: Error) {
 
         Object.assign(this.signal, { aborted: true, reason });
         this.signal.dispatchEvent(new Event('abort'));
@@ -146,10 +146,13 @@ export type FetchOptions = {
     timeout?: number;
     retries?: number;
     blocking?: string | symbol;
+    signal?: AbortSignal | AbortSignalInternal;
 };
 
 
-export const performFetch = function (uri: URL | string, { byterange, probe = false, timeout, retries = 1, blocking }: FetchOptions = {}): AbortablePromise<FetchResult> {
+export const performFetch = function (uri: URL | string, { byterange, probe = false, timeout, retries = 1, blocking, signal }: FetchOptions = {}): AbortablePromise<FetchResult> {
+
+    signal?.throwIfAborted();
 
     const streamOptions = Object.assign({
         probe,
@@ -163,10 +166,13 @@ export const performFetch = function (uri: URL | string, { byterange, probe = fa
 
     const stream = Uristream(uri.toString(), streamOptions);
 
+    const onSignalAbort = () => promise.abort(signal!.reason);
+
     const promise = new Promise<FetchResult>((resolve, reject) => {
 
         const doFinish = (err: Error | null, meta?: Meta) => {
 
+            signal?.removeEventListener('abort', onSignalAbort);
             stream.removeListener('meta', onMeta);
             stream.removeListener('end', onFail);
             stream.removeListener('error', onFail);
@@ -219,6 +225,7 @@ export const performFetch = function (uri: URL | string, { byterange, probe = fa
     }) as any;
 
     promise.abort = (reason?: Error) => !stream.destroyed && stream.destroy(reason ?? new AbortError('Fetch was aborted'));
+    signal?.addEventListener('abort', onSignalAbort);
 
     return promise;
 };
@@ -241,17 +248,27 @@ export const readFetchData = async function ({ stream }: FetchResult) {
 
 export const wait = function (timeout: number, { signal }: { signal?: AbortSignal | AbortSignalInternal } = {}): Promise<void> {
 
+    let timer: any;
+    let reportError: (err: Error) => any;
+    const onSignalAbort = () => {
+
+        clearTimeout(timer);
+        const reason = signal!.reason ?? new AbortError('Wait was aborted');
+        return reportError ? reportError(reason) : Promise.reject(reason);
+    };
+
     if (signal?.aborted) {
-        return Promise.reject(signal.reason ?? new AbortError('Wait was aborted'));
+        return onSignalAbort();
     }
 
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
 
-        setTimeout(resolve, timeout);
-        signal?.addEventListener('abort', () => {
+        reportError = reject as any;
+        timer = setTimeout(resolve, timeout);
+        signal?.addEventListener('abort', onSignalAbort);
+    }).finally(() => {
 
-            reject(signal.reason ?? new AbortError('Wait was aborted'));
-        }, { once: true });
+        signal?.removeEventListener('abort', onSignalAbort);
     });
 };
 

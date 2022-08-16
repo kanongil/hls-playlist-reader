@@ -257,8 +257,6 @@ export class HlsPlaylistFetcher {
         }
 
         this.#ac.abort(reason ?? new AbortError('Index update was aborted'));
-
-        this.#fetch?.abort(reason);
         this.#watcher?.close();
         this.#watcher = undefined;
     }
@@ -374,12 +372,12 @@ export class HlsPlaylistFetcher {
         }
     }
 
-    private _fetchIndexFrom(url: URL, options?: FetchOptions): Promise<FetchUrlResult> {
+    private _fetchIndexFrom(url: URL, options?: Omit<FetchOptions, 'signal'>): Promise<FetchUrlResult> {
 
         let meta: FetchUrlResult['meta'];
         assert(!this.#fetch, 'Already fetching');
 
-        const fetch = this.#fetch = this.performFetch(url, Object.assign({ timeout: 30 * 1000 }, options));
+        const fetch = this.#fetch = this.performFetch(url, Object.assign({ timeout: 30 * 1000, signal: this.#ac.signal }, options));
         return this.#fetch
             .then((result) => {
 

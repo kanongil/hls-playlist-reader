@@ -8,7 +8,7 @@ import { expect } from '@hapi/code';
 import { ignore, wait } from '@hapi/hoek';
 import * as Lab from '@hapi/lab';
 
-import { Deferred, FsWatcher, performFetch } from '../lib/helpers';
+import { AbortController, Deferred, FsWatcher, performFetch, wait as waitI } from '../lib/helpers';
 
 
 // Test shortcuts
@@ -247,6 +247,24 @@ describe('performFetch()', () => {
         finally {
             await Promise.all(fetches); // Don't leave unhandled promise rejections behind
         }
+    });
+});
+
+describe('wait()', () => {
+
+    it('can be cancelled', async () => {
+
+        const ac = new AbortController();
+        const promise = waitI(5000, { signal: ac.signal });
+        ac.abort();
+        await expect(promise).to.reject('This operation was aborted');
+    });
+
+    it('can be cancelled early', async () => {
+
+        const ac = new AbortController();
+        ac.abort();
+        await expect(waitI(5000, { signal: ac.signal })).to.reject('This operation was aborted');
     });
 });
 
