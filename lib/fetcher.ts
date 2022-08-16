@@ -1,10 +1,9 @@
 import { URL } from 'url';
 
 import { Boom, internal } from '@hapi/boom';
-import { wait } from '@hapi/hoek';
 import M3U8Parse, { AttrList, MediaPlaylist, MediaSegment, MasterPlaylist, ParserError } from 'm3u8parse';
 
-import { AbortError, assert, Byterange, ChangeWatcher, FsWatcher, performFetch, readFetchData, FetchOptions } from './helpers';
+import { AbortError, AbortController, assert, Byterange, ChangeWatcher, FsWatcher, performFetch, readFetchData, FetchOptions, wait } from './helpers';
 
 
 export type HlsPlaylistFetcherOptions = {
@@ -189,7 +188,7 @@ export class HlsPlaylistFetcher {
     #stallTimer?: NodeJS.Timeout;
     #latest?: Promise<PlaylistObject>;
     #pending?: Promise<PlaylistObject>;
-    #cancelled?: Error;
+    #ac = new AbortController();
 
     constructor(uri: URL | string, options: HlsPlaylistFetcherOptions = {}) {
 
@@ -230,9 +229,7 @@ export class HlsPlaylistFetcher {
 
         assert(!this.#pending, 'An update is already being fetched');
         assert(this.#index, 'An initial index() must have been sucessfully fetched');
-        assert(this.#index?.isLive(), 'Playlist type cannot be updated');
-
-        this.#cancelled = undefined;
+        assert(this.canUpdate(), 'Playlist cannot be updated');
 
         this._updateStallTimer(timeout);
         this.#pending = this._next()
@@ -249,23 +246,21 @@ export class HlsPlaylistFetcher {
     /** Check if current index can be updated. */
     canUpdate(): boolean {
 
-        return !this.#cancelled && !!this.#index?.isLive();
+        return !this.#ac.signal.aborted && !!this.#index?.isLive();
     }
 
     /** Cancel pending index fetch or update wait. They will (eventually) fail with reason or an AbortError. */
     cancel(reason?: Error): void {
 
-        if (this.#cancelled) {
+        if (this.#ac.signal.aborted) {
             return;             // Ignore cancels when already cancelled
         }
 
-        this.#cancelled = reason ?? new AbortError('Index update was aborted');
+        this.#ac.abort(reason ?? new AbortError('Index update was aborted'));
+
         this.#fetch?.abort(reason);
         this.#watcher?.close();
         this.#watcher = undefined;
-
-        this._updateStallTimer();
-        // TODO: cancel update wait
     }
 
     /**
@@ -342,7 +337,7 @@ export class HlsPlaylistFetcher {
         return index;
     }
 
-    protected getUpdateInterval({ index, partTarget }: ParsedPlaylist, updated = false): number {
+    protected getUpdateInterval({ index, partTarget }: ParsedPlaylist, updated = false): number | undefined {
 
         let updateInterval = index.target_duration!;
         if (partTarget! > 0 && !index.i_frames_only) {
@@ -369,15 +364,6 @@ export class HlsPlaylistFetcher {
     // Private methods
 
     /**
-     * Should be called after every non-cancellable await to throw the cancel() reason.
-     */
-    private _cancelCheck(): void {
-
-        if (this.#cancelled) {
-            throw this.#cancelled;
-        }
-    }
-
      * Cancels reader after timeout ms.
      */
     private _updateStallTimer(timeout?: number): void | never {
@@ -435,8 +421,6 @@ export class HlsPlaylistFetcher {
                 wasUpdated = false;
             }
             catch (err) {
-                this._cancelCheck();
-
                 if (!(err instanceof Error) ||
                     !this.isRecoverableUpdateError(err)) {
 
@@ -457,26 +441,18 @@ export class HlsPlaylistFetcher {
 
     private async _updateIndex(fetchPromise: Promise<FetchUrlResult>): Promise<PlaylistObject> {
 
-        try {
-            // eslint-disable-next-line no-var
-            var { meta, content } = await fetchPromise;
-            const updatedAt = new Date();
+        const { meta, content } = await fetchPromise;
+        const updatedAt = new Date();
 
-            const rawIndex = M3U8Parse(content, { extensions: this.extensions });
+        const rawIndex = M3U8Parse(content, { extensions: this.extensions });
 
-            (this as any).updated = updatedAt;
-            (this as any).baseUrl = meta.url;
-            // eslint-disable-next-line no-eq-null, eqeqeq
-            (this as any).modified = meta.modified != null ? new Date(meta.modified) : undefined;
-            this.#index = this.preprocessIndex(rawIndex);
-            this.#playlist = this.#index && !this.#index.master ? new ParsedPlaylist(this.#index, { noLowLatency: !this.lowLatency }) : undefined;
-            assert(this.#index, 'Missing index');
-        }
-        catch (err) {
-            this._cancelCheck();
-
-            throw err;
-        }
+        (this as any).updated = updatedAt;
+        (this as any).baseUrl = meta.url;
+        // eslint-disable-next-line no-eq-null, eqeqeq
+        (this as any).modified = meta.modified != null ? new Date(meta.modified) : undefined;
+        this.#index = this.preprocessIndex(rawIndex);
+        this.#playlist = this.#index && !this.#index.master ? new ParsedPlaylist(this.#index, { noLowLatency: !this.lowLatency }) : undefined;
+        assert(this.#index, 'Missing index');
 
         return { index: this.#index!, playlist: this.#playlist, meta: { url: meta.url, modified: this.modified, updated: this.updated! } };
     }
@@ -491,7 +467,7 @@ export class HlsPlaylistFetcher {
             throw new Error('data: uri cannot be updated');
         }
 
-        let delayMs = this.getUpdateInterval(fromPlaylist, wasUpdated && !wasError) * 1000;
+        let delayMs = this.getUpdateInterval(fromPlaylist, wasUpdated && !wasError)! * 1000;
         let blocking;
 
         if (wasUpdated) {
@@ -522,21 +498,21 @@ export class HlsPlaylistFetcher {
                     await this.#watcher.next(delayMs);
                 }
                 catch (err) {
-                    /* $lab:coverage:off$ */
                     this.#watcher = undefined;
 
-                    if (!this.#cancelled) {
-                        assert(err instanceof Error);
-                        this.onProblem(err);
+                    if (this.#ac.signal.aborted) {
+                        throw this.#ac.signal.reason;
                     }
+
+                    /* $lab:coverage:off$ */
+                    assert(err instanceof Error);
+                    this.onProblem(err);
                     /* $lab:coverage:on$ */
                 }
             }
             else {
-                await wait(delayMs);
+                await wait(delayMs, { signal: this.#ac.signal });
             }
-
-            this._cancelCheck();
         }
 
         try {

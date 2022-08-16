@@ -1,6 +1,7 @@
-import { Readable, Stream } from 'stream';
+import type { Readable } from 'stream';
 import type { Meta } from 'uristream/lib/uri-reader';
 
+import { EventEmitter } from 'events';
 import { watch } from 'fs';
 import { basename, dirname } from 'path';
 import { URL, fileURLToPath } from 'url';
@@ -26,12 +27,29 @@ if (!globalThis.DOMException) {
     }
 }
 
+
 export class AbortError extends DOMException {
     constructor(message: string) {
 
         super(message, 'AbortError');
     }
 }
+
+/** Simplified AbortSignal for internal usage only */
+export const AbortSignal = globalThis.AbortSignal ?? class AbortSignal extends EventEmitter {
+    aborted = false;
+    reason?: Error;
+};
+
+/** Simplified AbortController for internal usage only */
+export const AbortController = globalThis.AbortController ?? class AbortController {
+    signal = new AbortSignal() as any as EventEmitter;
+    abort(reason: Error) {
+
+        Object.assign(this.signal, { aborted: true, reason });
+        this.signal.emit('abort', reason);
+    }
+};
 
 
 // eslint-disable-next-line func-style
@@ -205,6 +223,23 @@ export const readFetchData = async function ({ stream }: FetchResult) {
     }
 
     return content;
+};
+
+
+export const wait = function (timeout: number, { signal }: { signal?: AbortSignal } = {}): Promise<void> {
+
+    if (signal?.aborted) {
+        return Promise.reject(signal.reason ?? new AbortError('Wait was aborted'));
+    }
+
+    return new Promise((resolve, reject) => {
+
+        setTimeout(resolve, timeout);
+        signal?.addEventListener('abort', () => {
+
+            reject(signal.reason ?? new AbortError('Wait was aborted'));
+        }, { once: true });
+    });
 };
 
 
