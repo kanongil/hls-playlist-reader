@@ -14,6 +14,7 @@ interface IHlsPlaylistReaderEvents {
 
 export type HlsPlaylistReaderOptions = Omit<HlsPlaylistFetcherOptions, 'onProblem'> & {
     maxStallTime?: number;
+    fetcher?: typeof HlsPlaylistFetcher;
 };
 
 /**
@@ -31,7 +32,7 @@ export class HlsPlaylistReader extends TypedEmitter(HlsPlaylistReaderEvents, Typ
 
         super({ objectMode: true, highWaterMark: 0, autoDestroy: true, emitClose: true } as ReadableOptions);
 
-        this.fetch = new HlsPlaylistFetcher(uri, { ...options, onProblem: (err) => this.emit('problem', err) });
+        this.fetch = new (options.fetcher || HlsPlaylistFetcher)(uri, { ...options, onProblem: (err) => this.emit('problem', err) });
         this.stallAfterMs = options.maxStallTime ?? Infinity;
 
         // Pre-fetch the initial index
