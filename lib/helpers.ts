@@ -35,21 +35,34 @@ export class AbortError extends DOMException {
     }
 }
 
+const useInternalAbort = (!globalThis.AbortController || !globalThis.AbortSignal || !globalThis.AbortSignal.prototype.throwIfAborted) as boolean;
+
 /** Simplified AbortSignal for internal usage only */
-export const AbortSignal = globalThis.AbortSignal ?? class AbortSignal extends EventEmitter {
+class AbortSignalInternal extends EventTarget {
     aborted = false;
     reason?: Error;
-};
+
+    throwIfAborted() {
+
+        if (this.aborted) {
+            throw this.reason!;
+        }
+    }
+}
 
 /** Simplified AbortController for internal usage only */
-export const AbortController = globalThis.AbortController ?? class AbortController {
-    signal = new AbortSignal() as any as EventEmitter;
+class AbortControllerInternal {
+    signal = new AbortSignalInternal();
     abort(reason: Error) {
 
         Object.assign(this.signal, { aborted: true, reason });
-        this.signal.emit('abort', reason);
+        this.signal.dispatchEvent(new Event('abort'));
     }
-};
+}
+
+export const AbortSignal = useInternalAbort ? AbortSignalInternal : globalThis.AbortSignal;
+
+export const AbortController = useInternalAbort ? AbortControllerInternal : globalThis.AbortController;
 
 
 // eslint-disable-next-line func-style
@@ -226,7 +239,7 @@ export const readFetchData = async function ({ stream }: FetchResult) {
 };
 
 
-export const wait = function (timeout: number, { signal }: { signal?: AbortSignal } = {}): Promise<void> {
+export const wait = function (timeout: number, { signal }: { signal?: AbortSignal | AbortSignalInternal } = {}): Promise<void> {
 
     if (signal?.aborted) {
         return Promise.reject(signal.reason ?? new AbortError('Wait was aborted'));
