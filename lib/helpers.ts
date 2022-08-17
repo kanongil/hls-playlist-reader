@@ -38,9 +38,19 @@ export class AbortError extends DOMException {
 const useInternalAbort = (!globalThis.AbortController || !globalThis.AbortSignal || !globalThis.AbortSignal.prototype.throwIfAborted) as boolean;
 
 /** Simplified AbortSignal for internal usage only */
-class AbortSignalInternal extends EventTarget {
+class AbortSignalInternal extends EventEmitter {
     aborted = false;
     reason?: Error;
+
+    addEventListener(event: 'abort', listener: () => void) {
+
+        super.addListener(event, listener);
+    }
+
+    removeEventListener(event: 'abort', listener: () => void) {
+
+        super.removeListener(event, listener);
+    }
 
     throwIfAborted() {
 
@@ -56,7 +66,7 @@ class AbortControllerInternal {
     abort(reason?: Error) {
 
         Object.assign(this.signal, { aborted: true, reason });
-        this.signal.dispatchEvent(new Event('abort'));
+        this.signal.emit('abort');
     }
 }
 
