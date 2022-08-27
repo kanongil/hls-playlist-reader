@@ -31,7 +31,7 @@ const { expect } = Code;
 
 describe('HlsPlaylistReader()', () => {
 
-    const readPlaylists = Shared.readSegments.bind(null, HlsPlaylistReader);
+    const readPlaylists = Shared.readStreamSegments.bind(null, HlsPlaylistReader);
     let server;
 
     before(async () => {

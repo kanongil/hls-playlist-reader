@@ -29,13 +29,13 @@ export type PreloadHints = {
 export class ParsedPlaylist {
 
     private _index: Readonly<MediaPlaylist>;
-    private _noLowLatency: boolean;
+    private _stripLowLatency: boolean;
 
     constructor(index: Readonly<MediaPlaylist>, options: { noLowLatency?: boolean } = {}) {
 
-        this._noLowLatency = !!options.noLowLatency;
+        this._stripLowLatency = !!options.noLowLatency;
 
-        if (this._noLowLatency) {
+        if (this._stripLowLatency) {
             const stripped = index = new MediaPlaylist(index);
 
             delete stripped.part_info;
@@ -58,7 +58,7 @@ export class ParsedPlaylist {
 
     isSameHead(index: Readonly<MediaPlaylist>): boolean {
 
-        const includePartial = !this._noLowLatency && !this._index.i_frames_only;
+        const includePartial = !(this._stripLowLatency  || this._index.i_frames_only);
 
         const sameMsn = this._index.lastMsn(includePartial) === index.lastMsn(includePartial);
         if (!sameMsn || !includePartial) {
@@ -349,12 +349,12 @@ export class HlsPlaylistFetcher {
         return updateInterval;
     }
 
-    protected performFetch(url: URL, options?: FetchOptions) {
+    protected performFetch(url: URL, options?: FetchOptions): ReturnType<typeof performFetch> {
 
         return performFetch(url, options);
     }
 
-    protected readFetchContent(fetch: Awaited<ReturnType<typeof performFetch>>) {
+    protected readFetchContent(fetch: Awaited<ReturnType<typeof performFetch>>): Promise<string> {
 
         return readFetchData(fetch);
     }
@@ -377,18 +377,14 @@ export class HlsPlaylistFetcher {
         let meta: FetchUrlResult['meta'];
         assert(!this.#fetch, 'Already fetching');
 
-        const fetch = this.#fetch = this.performFetch(url, Object.assign({ timeout: 30 * 1000, signal: this.#ac.signal }, options));
+        this.#fetch = this.performFetch(url, Object.assign({ timeout: 30 * 1000, signal: this.#ac.signal }, options));
         return this.#fetch
             .then((result) => {
 
                 meta = result.meta;
                 this.validateIndexMeta(meta);
 
-                return this.readFetchContent(result).catch((err) => {
-
-                    fetch.abort(err);
-                    throw err;
-                });
+                return this.readFetchContent(result);
             })
             .then((content) => ({ meta, content }))
             .finally(() => {
@@ -425,12 +421,7 @@ export class HlsPlaylistFetcher {
                     throw err;
                 }
 
-                try {
-                    this.onProblem(err);
-                }
-                catch (err) {
-                    throw err;
-                }
+                this.onProblem(err);
 
                 wasError = true;
             }

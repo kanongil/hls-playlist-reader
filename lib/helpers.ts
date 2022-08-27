@@ -130,14 +130,14 @@ const internals = {
 export class Deferred<T> {
 
     promise: Promise<T>;
-    resolve: (arg: T | PromiseLike<T>) => void = undefined as any;
+    resolve: (arg?: T | PromiseLike<T>) => void = undefined as any;
     reject: (err: Error) => void = undefined as any;
 
     constructor(independent = false) {
 
         this.promise = new Promise<T>((resolve, reject) => {
 
-            this.resolve = resolve;
+            this.resolve = resolve as any;
             this.reject = reject;
         });
 

@@ -125,7 +125,7 @@ exports.provisionLiveServer = function (shared) {
 };
 
 
-exports.readSegments = (Class, ...args) => {
+exports.readStreamSegments = (Class, ...args) => {
 
     let r;
     const promise = new Promise((resolve, reject) => {
