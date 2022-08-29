@@ -1,14 +1,14 @@
 import type { Readable } from 'stream';
-import type { Meta } from 'uristream/lib/uri-reader';
+import type { Meta } from 'uristream/lib/uri-reader.js';
 
 import { EventEmitter } from 'events';
 import { watch } from 'fs';
 import { basename, dirname } from 'path';
-import { URL, fileURLToPath } from 'url';
+import { fileURLToPath } from 'url';
 
-import AgentKeepalive = require('agentkeepalive');
+import AgentKeepalive from 'agentkeepalive';
 import { assert as hoekAssert, ignore } from '@hapi/hoek';
-import Uristream = require('uristream');
+import Uristream from 'uristream';
 
 
 if (!globalThis.DOMException) {

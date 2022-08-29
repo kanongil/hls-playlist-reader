@@ -1,10 +1,8 @@
 import type { ReadableOptions } from 'stream';
 import type { MediaPlaylist, MasterPlaylist } from 'm3u8parse';
 
-import { URL } from 'url';
-
-import { BaseEvents, TypedEmitter, TypedReadable } from './raw/typed-readable';
-import { HlsPlaylistFetcher, HlsPlaylistFetcherOptions, PlaylistObject } from './fetcher';
+import { BaseEvents, TypedEmitter, TypedReadable } from './raw/typed-readable.js';
+import { HlsPlaylistFetcher, HlsPlaylistFetcherOptions, PlaylistObject } from './fetcher.js';
 
 
 const HlsPlaylistReaderEvents = <IHlsPlaylistReaderEvents & BaseEvents>(null as any);

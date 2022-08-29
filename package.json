@@ -3,8 +3,10 @@
   "version": "2.0.2",
   "description": "Read playlist updates from a HLS stream",
   "main": "lib",
+  "type": "module",
   "scripts": {
     "clean": "rm -f lib/*.{js,d.ts}",
+    "compile": "tsc -b src",
     "postpack": "npm run clean",
     "prepack": "tsc",
     "test": "lab -t 95",

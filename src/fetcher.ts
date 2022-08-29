@@ -1,9 +1,7 @@
-import { URL } from 'url';
-
 import { Boom, internal } from '@hapi/boom';
-import M3U8Parse, { AttrList, MediaPlaylist, MediaSegment, MasterPlaylist, ParserError } from 'm3u8parse';
+import { M3U8Parse, AttrList, MediaPlaylist, MediaSegment, MasterPlaylist, ParserError } from 'm3u8parse';
 
-import { AbortError, AbortController, assert, Byterange, ChangeWatcher, FsWatcher, performFetch, readFetchData, FetchOptions, wait, Deferred } from './helpers';
+import { AbortError, AbortController, assert, Byterange, ChangeWatcher, FsWatcher, performFetch, readFetchData, FetchOptions, wait, Deferred } from './helpers.js';
 
 
 export type HlsPlaylistFetcherOptions = {
@@ -156,6 +154,8 @@ export interface PlaylistObject {
     meta: Readonly<HlsIndexMeta>;
 }
 
+
+// TODO: expose AsyncIterator !!!??
 export class HlsPlaylistFetcher {
 
     static readonly indexMimeTypes = new Set([

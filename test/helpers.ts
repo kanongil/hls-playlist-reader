@@ -2,7 +2,7 @@ import * as Fs from 'fs';
 import * as Os from 'os';
 import * as Path from 'path';
 import { Stream } from 'stream';
-import { URL, pathToFileURL } from 'url';
+import { pathToFileURL } from 'url';
 
 import { expect } from '@hapi/code';
 import { ignore, wait } from '@hapi/hoek';
