@@ -3,7 +3,7 @@ import { URL } from 'url';
 import { Boom, internal } from '@hapi/boom';
 import M3U8Parse, { AttrList, MediaPlaylist, MediaSegment, MasterPlaylist, ParserError } from 'm3u8parse';
 
-import { AbortError, AbortController, assert, Byterange, ChangeWatcher, FsWatcher, performFetch, readFetchData, FetchOptions, wait } from './helpers';
+import { AbortError, AbortController, assert, Byterange, ChangeWatcher, FsWatcher, performFetch, readFetchData, FetchOptions, wait, Deferred } from './helpers';
 
 
 export type HlsPlaylistFetcherOptions = {
@@ -188,6 +188,7 @@ export class HlsPlaylistFetcher {
     #stallTimer?: NodeJS.Timeout;
     #latest?: Promise<PlaylistObject>;
     #pending?: Promise<PlaylistObject>;
+    #waiting?: Deferred<void>;
     #ac = new AbortController();
 
     constructor(uri: URL | string, options: HlsPlaylistFetcherOptions = {}) {
@@ -240,7 +241,28 @@ export class HlsPlaylistFetcher {
                 this._updateStallTimer();
             });
 
+        if (this.#waiting) {
+            this.#waiting.resolve();
+            this.#waiting = undefined;
+        }
+
         return this.#pending;
+    }
+
+    /** Wait until the playlist has been updated, but don't trigger an update. */
+    async next(): Promise<PlaylistObject> {
+
+        assert(this.canUpdate(), 'Playlist cannot be updated');
+
+        if (!this.#pending) {
+            if (!this.#waiting) {
+                this.#waiting = new Deferred();
+            }
+
+            await this.#waiting.promise;
+        }
+
+        return this.#pending!;
     }
 
     /** Check if current index can be updated. */
