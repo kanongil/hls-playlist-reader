@@ -1,284 +1,26 @@
 import * as Fs from 'fs';
 import * as Os from 'os';
 import * as Path from 'path';
-import { Stream } from 'stream';
 import { pathToFileURL } from 'url';
 
 import { expect } from '@hapi/code';
-import { ignore, wait } from '@hapi/hoek';
-import * as Lab from '@hapi/lab';
+import { assert, wait } from '@hapi/hoek';
 
-import { AbortController, Deferred, FsWatcher, performFetch, wait as waitI } from '../lib/helpers';
+import { ChangeWatcher } from '../lib/helpers.node.js';
 
-
-// Test shortcuts
-
-export const lab = Lab.script();
-const { describe, it, before, after } = lab;
-
-
-describe('Deferred()', () => {
-
-    const savedEmit = process.emitWarning;
-
-    before(() => {
-
-        process.emitWarning = ignore;
-    });
-
-    after(() => {
-
-        process.emitWarning = savedEmit;
-    });
-
-    it('resolves with deferred value (early)', async () => {
-
-        const deferred = new Deferred();
-        const val = {};
-
-        deferred.resolve(val);
-        expect(await deferred.promise).to.equal(val);
-    });
-
-    it('resolves with deferred value (late)', async () => {
-
-        const deferred = new Deferred();
-        const val = {};
-
-        process.nextTick(() => deferred.resolve(val));
-        expect(await deferred.promise).to.equal(val);
-    });
-
-    it('rejects with rejected value', async () => {
-
-        const deferred = new Deferred();
-
-        deferred.reject(new Error('fail'));
-        await expect(deferred.promise).to.reject('fail');
-    });
-
-    it('can create unhandledRejection when independent=false', (flags: any) => {
-
-        const unhandled = new Promise((resolve, reject) => {
-
-            flags.onUnhandledRejection = reject;
-        });
-
-        return (async () => {
-
-            const deferred = new Deferred(false);
-
-            deferred.reject(new Error('fail'));
-            await wait(1);
-            await expect(deferred.promise).to.reject('fail');
-            await expect(unhandled).to.reject('fail');
-        })();
-    });
-
-    it('does not create unhandledRejection when independent=true', (flags: any) => {
-
-        const unhandled = new Promise((resolve, reject) => {
-
-            flags.onUnhandledRejection = reject;
-        });
-
-        return (async () => {
-
-            const deferred = new Deferred(true);
-
-            deferred.reject(new Error('fail'));
-            await wait(1);
-            await expect(deferred.promise).to.reject('fail');
-            await Promise.race([unhandled, wait(1)]);
-        })();
-    });
-});
-
-describe('performFetch()', () => {
-
-    it('fetches a file with metadata and stream', async () => {
-
-        const url = pathToFileURL(Path.join(__dirname, 'fixtures', '500.m3u8')).href;
-        const { stream, meta } = await performFetch(url);
-
-        stream?.destroy();
-
-        expect(stream).to.be.instanceof(Stream);
-        expect(meta).to.contain({
-            mime: 'application/vnd.apple.mpegurl',
-            size: 416,
-            url
-        } as any);
-        expect(meta.modified).to.be.instanceof(Date);
-    });
-
-    it('stream contains file data', async () => {
-
-        const url = pathToFileURL(Path.join(__dirname, 'fixtures', '500.m3u8')).href;
-        const { stream, meta } = await performFetch(url);
-
-        let transferred = 0;
-        for await (const chunk of stream!) {
-            transferred += (chunk as Buffer).length;
-        }
-
-        expect(transferred).to.equal(meta.size);
-    });
-
-    it('can be aborted early', async () => {
-
-        const url = pathToFileURL(Path.join(__dirname, 'fixtures', '500.m3u8')).href;
-        const fetch = performFetch(url);
-
-        fetch.abort();
-        fetch.abort();   // Do another to verify it is handled
-
-        await expect(fetch).to.reject('Fetch was aborted');
-    });
-
-    it('can be aborted late', async () => {
-
-        const url = pathToFileURL(Path.join(__dirname, 'fixtures', '500.m3u8')).href;
-        const fetch = performFetch(url);
-
-        const { stream } = await fetch;
-
-        const receive = async () => {
-
-            for await (const {} of stream!) {}
-        };
-
-        const promise = receive();
-
-        fetch.abort();
-
-        await expect(promise).to.reject('Fetch was aborted');
-    });
-
-    it('supports "probe" option', async () => {
-
-        const url = pathToFileURL(Path.join(__dirname, 'fixtures', '500.m3u8')).href;
-        const { stream, meta } = await performFetch(url, { probe: true });
-
-        expect(stream).to.not.exist();
-        expect(meta).to.contain({
-            mime: 'application/vnd.apple.mpegurl',
-            size: 416,
-            url
-        } as any);
-        expect(meta.modified).to.be.instanceof(Date);
-    });
-
-    it('supports late abort with "probe" option', async () => {
-
-        const url = pathToFileURL(Path.join(__dirname, 'fixtures', '500.m3u8')).href;
-        const fetch = performFetch(url, { probe: true });
-
-        await fetch;
-
-        fetch.abort();
-    });
-
-    it('supports "byterange" option', async () => {
-
-        const url = pathToFileURL(Path.join(__dirname, 'fixtures', '500.m3u8')).href;
-        const { stream, meta } = await performFetch(url, { byterange: { offset: 10, length: 2000 } });
-        stream?.destroy();
-
-        expect(stream).to.be.instanceof(Stream);
-        expect(meta).to.contain({
-            mime: 'application/vnd.apple.mpegurl',
-            size: 406,
-            url
-        } as any);
-        expect(meta.modified).to.be.instanceof(Date);
-    });
-
-    it('supports "byterange" option without "length"', async () => {
-
-        const url = pathToFileURL(Path.join(__dirname, 'fixtures', '500.m3u8')).href;
-        const { stream, meta } = await performFetch(url, { byterange: { offset: 400 } });
-        stream?.destroy();
-
-        expect(stream).to.be.instanceof(Stream);
-        expect(meta).to.contain({
-            mime: 'application/vnd.apple.mpegurl',
-            size: 16,
-            url
-        } as any);
-        expect(meta.modified).to.be.instanceof(Date);
-    });
-
-    it('supports https "blocking" option', async () => {
-
-        const blocking = 'test';
-
-        const fetches = [];
-        try {
-            for (let i = 0; i < 5; ++i) {
-                fetches.push((async () => {
-
-                    const { stream } = await performFetch('https://www.google.com', { blocking });
-
-                    const ready = process.hrtime.bigint();
-                    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                    for await (const _ of stream!) {}
-                    const completed = process.hrtime.bigint();
-
-                    return { ready, completed };
-                })());
-            }
-
-            await performFetch('https://www.google.com', { probe: true });
-            const independentReady = process.hrtime.bigint();
-
-            expect(fetches).to.have.length(5);
-            const results = await Promise.all(fetches);
-
-            let last = { completed: BigInt(0) };
-            for (let i = 0; i < 5; ++i) {
-                expect(results[i].ready).to.be.greaterThan(last.completed);
-                expect(results[i].completed).to.be.greaterThan(results[i].ready);
-                last = results[i];
-            }
-
-            expect(independentReady).to.be.lessThan(results[4].completed);
-        }
-        finally {
-            await Promise.all(fetches); // Don't leave unhandled promise rejections behind
-        }
-    });
-});
-
-describe('wait()', () => {
-
-    it('can be cancelled', async () => {
-
-        const ac = new AbortController();
-        const promise = waitI(5000, { signal: ac.signal });
-        ac.abort();
-        await expect(promise).to.reject('This operation was aborted');
-    });
-
-    it('can be cancelled early', async () => {
-
-        const ac = new AbortController();
-        ac.abort();
-        await expect(waitI(5000, { signal: ac.signal })).to.reject('This operation was aborted');
-    });
-});
 
 describe('FsWatcher', () => {
 
     let tmpDir: URL;
 
-    const createWatcher = async function (uri: URL | string) {
+    const createWatcher = async function (uri: URL) {
 
         if (Os.platform() === 'darwin') {
             await wait(20); // macOS needs time to settle before starting the watcher...
         }
 
-        const watcher = new FsWatcher(uri);
+        const watcher = ChangeWatcher.create(uri);
+        assert(watcher);
         if (Os.platform() === 'darwin') {
             await wait(20); // macOS needs time to setup the watcher...
         }
@@ -477,7 +219,7 @@ describe('FsWatcher', () => {
         it('throws on errors', async () => {
 
             const fileUrl = new URL('file1', tmpDir);
-            const watcher = new FsWatcher(fileUrl);
+            const watcher = ChangeWatcher.create(fileUrl)!;
             try {
                 const promise = watcher.next();
 
@@ -496,7 +238,7 @@ describe('FsWatcher', () => {
         it('throws on errors while not called', () => {
 
             const fileUrl = new URL('file1', tmpDir);
-            const watcher = new FsWatcher(fileUrl);
+            const watcher = ChangeWatcher.create(fileUrl)!;
             try {
                 // Fabricate an error
 
@@ -515,7 +257,7 @@ describe('FsWatcher', () => {
         it('makes next() throw an error', async () => {
 
             const fileUrl = new URL('file1', tmpDir);
-            const watcher = new FsWatcher(fileUrl);
+            const watcher = ChangeWatcher.create(fileUrl)!;
             const promise = watcher.next();
 
             watcher.close();
@@ -527,7 +269,7 @@ describe('FsWatcher', () => {
         it('does nothing if already closed', () => {
 
             const fileUrl = new URL('file1', tmpDir);
-            const watcher = new FsWatcher(fileUrl);
+            const watcher = ChangeWatcher.create(fileUrl)!;
 
             watcher.close();
             watcher.close();

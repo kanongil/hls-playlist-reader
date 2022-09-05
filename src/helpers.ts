@@ -1,31 +1,47 @@
-import type { Readable } from 'stream';
 import type { Meta } from 'uristream/lib/uri-reader.js';
 
-import { EventEmitter } from 'events';
-import { watch } from 'fs';
-import { basename, dirname } from 'path';
-import { fileURLToPath } from 'url';
+// Ponyfill Array.at() (ES2022 feature)
 
-import AgentKeepalive from 'agentkeepalive';
-import { assert as hoekAssert, ignore } from '@hapi/hoek';
-import Uristream from 'uristream';
+/* $lab:coverage:off$ */ /* c8 ignore start */
+export const arrayAt = Array.prototype.at ? function <T = unknown>(array: readonly T[], n: number): T | undefined {
+
+    return Array.prototype.at.call(array, n);
+} : function <T = unknown>(array: readonly T[], n: number): T | undefined {
+
+    n = Math.trunc(n) || 0;
+
+    if (n < 0) {
+        n += array.length;
+    }
+
+    if (n < 0 || n >= array.length) {
+        return undefined;
+    }
+
+    return array[n];
+};
+/* $lab:coverage:on$ */ /* c8 ignore stop */
 
 
-if (!globalThis.DOMException) {
+// Enable DOMException on old node.js
+
+/* $lab:coverage:off$ */ /* c8 ignore start */
+let DOMException = globalThis.DOMException;
+if (!DOMException && typeof process !== 'undefined') {
     try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { MessageChannel } = require('worker_threads');
+        const { MessageChannel } = await import('worker_threads');
 
         const port = new MessageChannel().port1;
         const ab = new ArrayBuffer(0);
         port.postMessage(ab, [ab, ab]);
     }
-    catch (err) {
-        (err as Error).constructor.name === 'DOMException' && (
-            (globalThis as any).DOMException = (err as DOMException).constructor
+    catch (err: any) {
+        err.constructor.name === 'DOMException' && (
+            (DOMException as any) = err.constructor
         );
     }
 }
+/* $lab:coverage:on$ */ /* c8 ignore stop */
 
 
 export class AbortError extends DOMException {
@@ -35,96 +51,51 @@ export class AbortError extends DOMException {
     }
 }
 
-const useInternalAbort = (!globalThis.AbortController || !globalThis.AbortSignal || !globalThis.AbortSignal.prototype.throwIfAborted) as boolean;
+export class TimeoutError extends DOMException {
+    constructor(message: string) {
 
-/** Simplified AbortSignal for internal usage only */
-class AbortSignalInternal extends EventEmitter {
-    aborted = false;
-    reason?: Error;
-
-    addEventListener(event: 'abort', listener: () => void) {
-
-        super.addListener(event, listener);
-    }
-
-    removeEventListener(event: 'abort', listener: () => void) {
-
-        super.removeListener(event, listener);
-    }
-
-    throwIfAborted() {
-
-        if (this.aborted) {
-            throw this.reason!;
-        }
+        super(message, 'TimeoutError');
     }
 }
 
-/** Simplified AbortController for internal usage only */
-class AbortControllerInternal {
-    signal = new AbortSignalInternal();
-    abort(reason?: Error) {
+export let AbortController = globalThis.AbortController;     // Allow a ponyfill to replace the implementation
 
-        Object.assign(this.signal, { aborted: true, reason });
-        this.signal.emit('abort');
-    }
-}
+export const setAbortControllerImpl = function (impl: typeof AbortController) {
 
-export const AbortSignal = useInternalAbort ? AbortSignalInternal : globalThis.AbortSignal;
+    AbortController = impl;
+};
 
-export const AbortController = useInternalAbort ? AbortControllerInternal : globalThis.AbortController;
-
-
-// eslint-disable-next-line func-style
-export function assert(condition: unknown, ...args: any[]): asserts condition {
-
-    hoekAssert(condition, ...args);
-}
-
+export type AbortablePromise<T> = Promise<T> & { abort: (reason?: Error) => void };
 
 export type Byterange = {
     offset: number;
     length?: number;
 };
 
-export type FetchResult = {
+export type FetchResult<T extends object = any> = {
     meta: Meta;
-    stream?: Readable;
+    stream?: T;    // ReadableStream<Uint8Array> | Readable;
+};
+
+export type FetchOptions = {
+    byterange?: Byterange;
+    probe?: boolean;
+    timeout?: number;
+    retries?: number;
+    blocking?: string | symbol;
+    signal?: AbortSignal;
 };
 
 
-const internals = {
-    fetchBuffer: 10 * 1000 * 1000,
+// eslint-disable-next-line func-style
+export function assert(condition: unknown, ...args: any[]): asserts condition {
 
-    agents: new Map < string | symbol, { http: AgentKeepalive; https: AgentKeepalive.HttpsAgent }>(),
-    blockingConfig(id?: string | symbol): { agent: { http: AgentKeepalive; https: AgentKeepalive.HttpsAgent } } | undefined {
-
-        if (id === undefined) {
-            return;
-        }
-
-        // Create a keepalive agent with 1 socket for each blocking id
-
-        let agents = internals.agents.get(id);
-        if (!agents) {
-            const config = {
-                maxSockets: 1,
-                maxFreeSockets: 1,
-                timeout: 0, // disable socket inactivity timeout
-                freeSocketTimeout: 20_000 // free unused sockets after 20 seconds
-            };
-
-            agents = {
-                http: new AgentKeepalive(config),
-                https: new AgentKeepalive.HttpsAgent(config)
-            };
-
-            internals.agents.set(id, agents);
-        }
-
-        return { agent: agents };
+    if (!condition) {
+        const err = new Error(args.join());
+        err.name = 'AssertError';
+        throw err;
     }
-};
+}
 
 
 export class Deferred<T> {
@@ -142,121 +113,12 @@ export class Deferred<T> {
         });
 
         if (independent) {
-            this.promise.catch(ignore);
+            this.promise.catch(() => undefined);
         }
     }
 }
 
-
-type AbortablePromise<T> = Promise<T> & { abort: (reason?: Error) => void };
-
-export type FetchOptions = {
-    byterange?: Byterange;
-    probe?: boolean;
-    timeout?: number;
-    retries?: number;
-    blocking?: string | symbol;
-    signal?: AbortSignal | AbortSignalInternal;
-};
-
-
-export const performFetch = function (uri: URL | string, { byterange, probe = false, timeout, retries = 1, blocking, signal }: FetchOptions = {}): AbortablePromise<FetchResult> {
-
-    signal?.throwIfAborted();
-
-    const streamOptions = Object.assign({
-        probe,
-        highWaterMark: internals.fetchBuffer,
-        timeout: probe ? 30 * 1000 : timeout,
-        retries
-    }, internals.blockingConfig(blocking), byterange ? {
-        start: byterange.offset,
-        end: byterange.length !== undefined ? byterange.offset + byterange.length - 1 : undefined
-    } : undefined);
-
-    const stream = Uristream(uri.toString(), streamOptions);
-
-    const onSignalAbort = () => promise.abort(signal!.reason);
-
-    const promise = new Promise<FetchResult>((resolve, reject) => {
-
-        const doFinish = (err: Error | null, meta?: Meta) => {
-
-            signal?.removeEventListener('abort', onSignalAbort);
-            stream.removeListener('meta', onMeta);
-            stream.removeListener('end', onFail);
-            stream.removeListener('error', onFail);
-
-            if (err) {
-                return reject(err);
-            }
-
-            assert(meta);
-
-            if (probe) {
-                stream.resume();     // Ensure that we actually end
-            }
-
-            process.nextTick(() => resolve({ meta, stream: probe ? undefined : stream }));
-        };
-
-        const onMeta = (meta: Meta) => {
-
-            meta = Object.assign({}, meta);
-
-            // Change filesize to stream length
-
-            if (meta.size >= 0 && byterange) {
-                meta.size = meta.size - byterange.offset;
-                if (byterange.length !== undefined) {
-                    meta.size = Math.min(meta.size, byterange.length);
-                }
-            }
-
-            return doFinish(null, meta);
-        };
-
-        const onFail = (err?: Error) => {
-
-            // Guard against broken uristream
-
-            /* $lab:coverage:off$ */
-            if (!err) {
-                err = new Error('No metadata');
-            }
-            /* $lab:coverage:on$ */
-
-            return doFinish(err);
-        };
-
-        stream.on('meta', onMeta);
-        stream.on('end', onFail);
-        stream.on('error', onFail);
-    }) as any;
-
-    promise.abort = (reason?: Error) => !stream.destroyed && stream.destroy(reason ?? new AbortError('Fetch was aborted'));
-    signal?.addEventListener('abort', onSignalAbort);
-
-    return promise;
-};
-
-
-export const readFetchData = async function ({ stream }: FetchResult) {
-
-    assert(stream, 'Must have a stream');
-
-    let content = '';
-
-    stream.setEncoding('utf-8');
-    for await (const chunk of stream) {
-        content += chunk;
-    }
-
-    return content;
-};
-
-
-export const wait = function (timeout: number, { signal }: { signal?: AbortSignal | AbortSignalInternal } = {}): Promise<void> {
+export const wait = function (timeout: number, { signal }: { signal?: AbortSignal } = {}): Promise<void> {
 
     let timer: any;
     let reportError: (err: Error) => any;
@@ -283,122 +145,22 @@ export const wait = function (timeout: number, { signal }: { signal?: AbortSigna
 };
 
 
-export interface ChangeWatcher {
+export interface IChangeWatcher {
     next(timeoutMs?: number): PromiseLike<string> | string;
     close(): void;
 }
 
+export class ChangeWatcher {
+    static #registry = new Map<string,(uri: URL) => IChangeWatcher>();
 
-type FSWatcherEvents = 'rename' | 'change' | 'timeout';
+    static create(uri: URL): IChangeWatcher | undefined {
 
-export class FsWatcher implements ChangeWatcher {
-
-    private _watcher: ReturnType<typeof watch>;
-    private _last?: FSWatcherEvents;
-    private _error?: Error;
-    private _deferred?: Deferred<FSWatcherEvents>;
-    private _delayed?: FSWatcherEvents;
-    private _timer?: NodeJS.Timeout;
-
-    constructor(uri: URL | string) {
-
-        const change = (eventType: FSWatcherEvents, name: string) => {
-
-            if (name !== fileName) {
-                return;
-            }
-
-            if (this._deferred) {
-                if (!this._delayed) {
-
-                    // Slightly delay resolve to handle multiple simultaneous firings
-
-                    this._delayed = eventType;
-                    clearTimeout(this._timer!);
-                    setImmediate(() => {
-
-                        if (!this._deferred) {
-                            return;                 // Can happen if error is triggered
-                        }
-
-                        this._deferred!.resolve(eventType);
-                        this._deferred = this._delayed = undefined;
-                    });
-                }
-
-                return;
-            }
-
-            this._last = eventType;
-        };
-
-        const error = (err: Error) => {
-
-            if (this._deferred) {
-                this._deferred.reject(err);
-                this._deferred = undefined;
-                clearTimeout(this._timer!);
-            }
-
-            this._error = err;
-        };
-
-        const path = fileURLToPath(uri);
-        const fileName = basename(path);
-        const dirName = dirname(path);
-
-        // Watch parent dir, since an atomic replace will have a new inode, and stop the watch for the path
-
-        const watcher = this._watcher = watch(dirName, { persistent: false });
-
-        watcher.on('change', change);
-        watcher.on('error', error);
-        watcher.once('close', () => {
-
-            watcher.removeListener('change', change);
-            watcher.removeListener('error', error);
-            this._last = undefined;
-        });
+        const factory = this.#registry.get(uri.protocol);
+        return factory ? factory(uri) : undefined;
     }
 
-    // Returns latest event since last call, or waits for next
+    static register(proto: string, factory: (uri: URL) => IChangeWatcher) {
 
-    next(timeoutMs?: number): PromiseLike<FSWatcherEvents> | FSWatcherEvents {
-
-        if (this._error) {
-            throw this._error;
-        }
-
-        const last = this._last;
-        if (last !== undefined) {
-            this._last = undefined;
-            return last;
-        }
-
-        this._deferred = new Deferred();
-
-        if (timeoutMs !== undefined) {
-            this._timer = setTimeout(() => {
-
-                this._deferred!.resolve('timeout');
-                this._deferred = undefined;
-            }, timeoutMs);
-        }
-
-        return this._deferred.promise;
-    }
-
-    close(): void {
-
-        if (!this._error) {
-            this._error = new Error('closed');
-            this._watcher.close();
-
-            if (this._deferred) {
-                this._deferred.reject(this._error);
-                this._deferred = undefined;
-                clearTimeout(this._timer!);
-            }
-        }
+        this.#registry.set(proto, factory);
     }
 }

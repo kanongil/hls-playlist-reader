@@ -1,7 +1,7 @@
-import { Boom, internal } from '@hapi/boom';
-import { M3U8Parse, AttrList, MediaPlaylist, MediaSegment, MasterPlaylist, ParserError } from 'm3u8parse';
+import M3U8Parse, { MediaPlaylist, ParserError, M3U8Playlist } from 'm3u8parse';
 
-import { AbortError, AbortController, assert, Byterange, ChangeWatcher, FsWatcher, performFetch, readFetchData, FetchOptions, wait, Deferred } from './helpers.js';
+import { AbortController, AbortError, AbortablePromise, assert, ChangeWatcher, FetchOptions, FetchResult, IChangeWatcher, wait } from './helpers.js';
+import { ParsedPlaylist } from './playlist.js';
 
 
 export type HlsPlaylistFetcherOptions = {
@@ -12,126 +12,6 @@ export type HlsPlaylistFetcherOptions = {
 
     onProblem?: (err: Error) => void;
 };
-
-export type PartData = {
-    uri: string;
-    byterange?: Byterange;
-};
-
-export type PreloadHints = {
-    part?: PartData;
-    map?: PartData;
-};
-
-
-export class ParsedPlaylist {
-
-    private _index: Readonly<MediaPlaylist>;
-    private _stripLowLatency: boolean;
-
-    constructor(index: Readonly<MediaPlaylist>, options: { noLowLatency?: boolean } = {}) {
-
-        this._stripLowLatency = !!options.noLowLatency;
-
-        if (this._stripLowLatency) {
-            const stripped = index = new MediaPlaylist(index);
-
-            delete stripped.part_info;
-            delete stripped.meta.preload_hints;
-            delete stripped.meta.rendition_reports;
-
-            stripped.server_control?.delete('part-hold-back');
-
-            if (stripped.segments.length && stripped.segments[stripped.segments.length - 1].isPartial()) {
-                stripped.segments.pop();
-            }
-
-            for (const segment of stripped.segments) {
-                delete segment.parts;
-            }
-        }
-
-        this._index = index;
-    }
-
-    isSameHead(index: Readonly<MediaPlaylist>): boolean {
-
-        const includePartial = !(this._stripLowLatency  || this._index.i_frames_only);
-
-        const sameMsn = this._index.lastMsn(includePartial) === index.lastMsn(includePartial);
-        if (!sameMsn || !includePartial) {
-            return sameMsn;
-        }
-
-        // Same + partial check
-
-        return ((this.segments[this.segments.length - 1].parts || []).length ===
-            (index.segments[index.segments.length - 1].parts || []).length);
-    }
-
-    nextHead(): { msn: number; part?: number } {
-
-        if (this.partTarget && !this._index.i_frames_only) {
-            const lastSegment = this.segments.length ? this.segments[this.segments.length - 1] : { uri: undefined, parts: undefined };
-            const hasPartialSegment = !lastSegment.uri;
-            const parts = lastSegment.parts || [];
-
-            return {
-                msn: this._index.lastMsn(true) + +!hasPartialSegment,
-                part: hasPartialSegment ? parts.length : 0
-            };
-        }
-
-        return { msn: this._index.lastMsn(false) + 1 };
-    }
-
-    get index(): Readonly<MediaPlaylist> {
-
-        return this._index;
-    }
-
-    get segments(): readonly Readonly<MediaSegment>[] {
-
-        return this._index.segments;
-    }
-
-    get partTarget(): number | undefined {
-
-        const info = this._index.part_info;
-        return info ? info.get('part-target', AttrList.Types.Float) || undefined : undefined;
-    }
-
-    get serverControl(): { canBlockReload: boolean; partHoldBack?: number } {
-
-        const control = this._index.server_control;
-        return {
-            canBlockReload: control ? control.get('can-block-reload') === 'YES' : false,
-            partHoldBack: control ? control.get('part-hold-back', AttrList.Types.Float) || undefined : undefined
-        };
-    }
-
-    get preloadHints(): PreloadHints {
-
-        const hints: PreloadHints = {};
-
-        const list = this._index.meta.preload_hints;
-        for (const attrs of list || []) {
-            const type = attrs.get('type')?.toLowerCase();
-            if (attrs.has('uri') && type === 'part' || type === 'map') {
-                hints[type] = {
-                    uri: attrs.get('uri', AttrList.Types.String) || '',
-                    byterange: attrs.has('byterange-start') ? {
-                        offset: attrs.get('byterange-start', AttrList.Types.Int),
-                        length: (attrs.has('byterange-length') ? attrs.get('byterange-length', AttrList.Types.Int) : undefined)
-                    } : undefined
-                };
-            }
-        }
-
-        return hints;
-    }
-}
-
 
 type FetchUrlResult = {
     content: string;
@@ -148,14 +28,12 @@ export type HlsIndexMeta = {
     modified?: Date;
 };
 
-export interface PlaylistObject {
-    index: Readonly<MasterPlaylist | MediaPlaylist>;
-    playlist?: ParsedPlaylist;
+export interface PlaylistObject<T extends M3U8Playlist = M3U8Playlist> {
+    index: Readonly<T>;
+    playlist: T extends MediaPlaylist ? ParsedPlaylist : undefined;
     meta: Readonly<HlsIndexMeta>;
 }
 
-
-// TODO: expose AsyncIterator !!!??
 export class HlsPlaylistFetcher {
 
     static readonly indexMimeTypes = new Set([
@@ -179,16 +57,17 @@ export class HlsPlaylistFetcher {
     readonly baseUrl: string;
     readonly modified?: Date;
     readonly updated?: Date;
+    readonly updates = 0;
 
     #rejected = 0;
-    #index?: MediaPlaylist | MasterPlaylist;
+    #index?: M3U8Playlist;
     #playlist?: ParsedPlaylist;
-    #fetch?: ReturnType<typeof performFetch>;
-    #watcher?: ChangeWatcher;
+    #fetch?: AbortablePromise<FetchResult>;
+    #watcher?: IChangeWatcher;
     #stallTimer?: NodeJS.Timeout;
     #latest?: Promise<PlaylistObject>;
     #pending?: Promise<PlaylistObject>;
-    #waiting?: Deferred<void>;
+    //#waiting?: Deferred<void>;
     #ac = new AbortController();
 
     constructor(uri: URL | string, options: HlsPlaylistFetcherOptions = {}) {
@@ -215,10 +94,7 @@ export class HlsPlaylistFetcher {
     index(): Promise<PlaylistObject> {
 
         if (!this.#latest) {
-            if (this.url.protocol === 'file:') {
-                this.#watcher = new FsWatcher(this.url);
-            }
-
+            this.#watcher = ChangeWatcher.create(this.url);
             this.#latest = this._updateIndex(this._fetchIndexFrom(this.url));
         }
 
@@ -236,21 +112,22 @@ export class HlsPlaylistFetcher {
         this.#pending = this._next()
             .finally(() => {
 
+                ++(<{ updates: number }> this).updates;
                 this.#latest = this.#pending;
                 this.#pending = undefined;
                 this._updateStallTimer();
             });
 
-        if (this.#waiting) {
+        /*if (this.#waiting) {
             this.#waiting.resolve();
             this.#waiting = undefined;
-        }
+        }*/
 
         return this.#pending;
     }
 
     /** Wait until the playlist has been updated, but don't trigger an update. */
-    async next(): Promise<PlaylistObject> {
+    /*async next(): Promise<PlaylistObject> {
 
         assert(this.canUpdate(), 'Playlist cannot be updated');
 
@@ -263,7 +140,7 @@ export class HlsPlaylistFetcher {
         }
 
         return this.#pending!;
-    }
+    }*/
 
     /** Check if current index can be updated. */
     canUpdate(): boolean {
@@ -289,25 +166,24 @@ export class HlsPlaylistFetcher {
      * The test is quite lenient since this will only be called for resources that have previously
      * been accessed without an error.
      */
-    isRecoverableUpdateError(err: unknown): boolean {
+    isRecoverableUpdateError(err: unknown, httpStatus?: number): boolean {
 
         const { recoverableCodes } = HlsPlaylistFetcher;
 
-        if (err instanceof Boom) {
-            const boom: Boom & { isBlocking?: boolean } = err;
-            if (boom.isServer ||
-                boom.isBlocking ||
-                recoverableCodes.has(boom.output.statusCode)) {
-
-                return true;
-            }
-        }
-
-        if (err instanceof ParserError) {
+        if ((err as any).isBlocking === true) {
             return true;
         }
 
-        if ((err as any).syscall) {      // Any syscall error
+        if (!httpStatus && typeof (err as any).httpStatus === 'number') {
+            httpStatus = (err as any).httpStatus;
+        }
+
+        if (httpStatus) {
+            const isServer = httpStatus >= 500 && httpStatus <= 599;
+            return isServer || recoverableCodes.has(httpStatus);
+        }
+
+        if (err instanceof ParserError) {
             return true;
         }
 
@@ -333,7 +209,7 @@ export class HlsPlaylistFetcher {
         }
     }
 
-    protected preprocessIndex<T extends MediaPlaylist | MasterPlaylist>(index: T): T | undefined {
+    protected preprocessIndex<T extends M3U8Playlist>(index: T): T | undefined {
 
         // Reject "old" index updates (eg. from CDN cached response & hitting multiple endpoints)
 
@@ -343,9 +219,14 @@ export class HlsPlaylistFetcher {
             // TODO: only test when fetched without blocking request
 
             if (MediaPlaylist.cast(index).lastMsn(true) < this.#index.lastMsn(true)) {
+                // TODO: signal onProblem???
+                // TODO: why only throw when rejected is low???
+                // TODO: don't use httpStatus to signal content error
                 if (this.#rejected < 2) {
                     this.#rejected++;
-                    throw internal('Rejected update from the past');
+                    const err = new Error('Rejected update from the past');
+                    (err as any).httpStatus = 500;
+                    throw err;
                 }
             }
 
@@ -371,14 +252,14 @@ export class HlsPlaylistFetcher {
         return updateInterval;
     }
 
-    protected performFetch(url: URL, options?: FetchOptions): ReturnType<typeof performFetch> {
+    protected performFetch(url: URL, options?: FetchOptions): AbortablePromise<FetchResult> {
 
-        return performFetch(url, options);
+        throw new Error('No fetcher');
     }
 
-    protected readFetchContent(fetch: Awaited<ReturnType<typeof performFetch>>): Promise<string> {
+    protected readFetchContent(fetch: FetchResult): Promise<string> {
 
-        return readFetchData(fetch);
+        throw new Error('No fetcher');
     }
 
     // Private methods
@@ -423,7 +304,7 @@ export class HlsPlaylistFetcher {
 
         assert(playlist, 'Missing playlist');
 
-        for (; ;) {
+        for (;;) {
 
             // Keep retrying until success or an unrecoverable error
 
@@ -447,6 +328,8 @@ export class HlsPlaylistFetcher {
 
                 wasError = true;
             }
+
+            await wait(100);     // Always wait at least 100ms before retrying
         }
     }
 
@@ -515,10 +398,10 @@ export class HlsPlaylistFetcher {
                         throw this.#ac.signal.reason;
                     }
 
-                    /* $lab:coverage:off$ */
+                    /* $lab:coverage:off$ */ /* c8 ignore start */
                     assert(err instanceof Error);
                     this.onProblem(err);
-                    /* $lab:coverage:on$ */
+                    /* $lab:coverage:on$ */ /* c8 ignore stop */
                 }
             }
             else {
@@ -529,8 +412,8 @@ export class HlsPlaylistFetcher {
         try {
             return await this._updateIndex(this._fetchIndexFrom(url, { blocking }));
         }
-        catch (err) {
-            if (err instanceof Boom) {
+        catch (err: any) {
+            if (err.isBoom || typeof err.httpStatus === 'number' || typeof err.statusCode === 'number') {
                 Object.assign(err, { isBlocking: !!blocking });
             }
 

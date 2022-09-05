@@ -1,15 +1,16 @@
+import type { HlsPlaylistFetcherOptions } from './fetcher.js';
 import type { HlsPlaylistReaderOptions } from './playlist-reader.js';
 
-import { HlsPlaylistReader } from './playlist-reader.js';
+import { HlsPlaylistReadable } from './playlist-reader.js';
+import { HlsPlaylistFetcher } from './fetcher.web.js';
 
-const createReader = function (uri: URL | string, options?: HlsPlaylistReaderOptions): HlsPlaylistReader {
+const createReader = function (uri: URL | string, options?: HlsPlaylistFetcherOptions & HlsPlaylistReaderOptions): HlsPlaylistReadable {
 
-    return new HlsPlaylistReader(uri, options);
+    return new HlsPlaylistReadable(new HlsPlaylistFetcher(uri, options), options);
 };
 
-export { createReader, HlsPlaylistReader };
-export { HlsPlaylistFetcher } from './fetcher.js';
-export type { HlsPlaylistReaderOptions };
-export type { HlsIndexMeta, HlsPlaylistFetcherOptions } from './fetcher.js';
+export { createReader, HlsPlaylistReadable };
+export type { HlsPlaylistFetcherOptions, HlsPlaylistReaderOptions };
+export type { HlsIndexMeta } from './fetcher.js';
 
 export default createReader;
