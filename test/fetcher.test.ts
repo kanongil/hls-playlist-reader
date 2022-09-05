@@ -6,7 +6,7 @@ import Url from 'url';
 import { expect } from '@hapi/code';
 import { HlsPlaylistFetcher as HlsPlaylistFetcherBase } from '../lib/fetcher.js';
 import { HlsPlaylistFetcher as HlsPlaylistFetcherNode } from '../lib/fetcher.node.js';
-import { HlsPlaylistFetcher as HlsPlaylistFetcherWeb } from '../lib/fetcher.web.js';
+const HlsPlaylistFetcherWeb = (typeof fetch === 'function') ? (await import('../lib/fetcher.web.js')).HlsPlaylistFetcher : HlsPlaylistFetcherBase;   // Only load when fetch() is available
 
 import { provisionServer, ServerState, genIndex, UnprotectedPlaylistFetcher } from './_shared.js';
 import { wait } from '@hapi/hoek';
@@ -35,11 +35,11 @@ describe(`HlsPlaylistFetcher (base)`, () => {
     });
 });
 
-const testMatrix = new Map(Object.entries({
-    'node+file': { HlsPlaylistFetcher: HlsPlaylistFetcherNode, baseUrl: new URL('fixtures', import.meta.url).href },
-    'node+http': { HlsPlaylistFetcher: HlsPlaylistFetcherNode, baseUrl: new URL('simple', server.info.uri).href },
-    'web+http': { HlsPlaylistFetcher: HlsPlaylistFetcherWeb, baseUrl: new URL('simple', server.info.uri).href }
-}));
+const testMatrix = new Map([
+    ['node+file', { HlsPlaylistFetcher: HlsPlaylistFetcherNode, baseUrl: new URL('fixtures', import.meta.url).href }],
+    ['node+http', { HlsPlaylistFetcher: HlsPlaylistFetcherNode, baseUrl: new URL('simple', server.info.uri).href }],
+    ['web+http', { HlsPlaylistFetcher: HlsPlaylistFetcherWeb, baseUrl: new URL('simple', server.info.uri).href }]
+]);
 
 if (typeof fetch !== 'function') {
     testMatrix.delete('web+http');

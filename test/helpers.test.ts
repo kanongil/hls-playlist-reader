@@ -7,7 +7,7 @@ import { ignore, wait } from '@hapi/hoek';
 
 import { AbortController, Deferred, wait as waitI } from '../lib/helpers.js';
 import { performFetch as performFetchNode } from '../lib/helpers.node.js';
-import { performFetch as performFetchWeb } from '../lib/helpers.web.js';
+const performFetchWeb = (typeof fetch === 'function') ? (await import('../lib/helpers.web.js')).performFetch : performFetchNode;   // Only load when fetch() is available
 
 import { provisionServer } from './_shared.js';
 

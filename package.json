@@ -8,11 +8,13 @@
   "scripts": {
     "clean": "tsc -b src test --clean; rm -Rf ./coverage",
     "compile": "tsc -b src",
+    "mocha": "mocha -R dot --check-leaks 'test/*.test.js'",
     "lint": "eslint .",
     "prepublishOnly": "npm run compile -- --force",
     "pretest": "concurrently 'npm run lint' 'tsc -b test'",
-    "test": "c8 --check-coverage mocha -R dot --check-leaks test/*.test.js",
-    "test-cov-html": "tsc -b test && c8 -r html mocha -R dot test/*.test.js"
+    "test": "c8 --check-coverage -- npm run mocha",
+    "test-cov-html": "tsc -b test && c8 -r html mocha -R dot 'test/*.test.js'",
+    "test-with-polyfills": "npm run pretest && c8 --check-coverage -- npm run mocha -- -r ./test/hook-polyfills.js"
   },
   "keywords": [
     "streaming",

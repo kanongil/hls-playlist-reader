@@ -27,6 +27,8 @@ jobs:
         node-version: ${{ matrix.node-version }}
         check-latest: ${{ matrix.node-version == '*' }}
     - run: npm ci
-    - run: npm test -- -r web-streams-polyfill/es2018
-    - if: ${{ matrix.node-version >= 18 }}
+    - name: Test using WebStreams polyfill
+      run: npm run test-with-polyfills
+    - name: Test without polyfill
+      if: ${{ matrix.node-version >= 18 }}
       run: npm test

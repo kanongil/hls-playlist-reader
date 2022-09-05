@@ -10,9 +10,9 @@ import { M3U8Playlist, MainPlaylist, MediaPlaylist, ParserError } from 'm3u8pars
 
 import * as Shared from './_shared.js';
 import { createReader, HlsPlaylistReadable, HlsPlaylistReaderOptions } from '../lib/index.js';
-import { HlsPlaylistFetcherOptions, PlaylistObject } from '../lib/fetcher.js';
+import { HlsPlaylistFetcher as HlsPlaylistFetcherBase, HlsPlaylistFetcherOptions, PlaylistObject } from '../lib/fetcher.js';
 import { HlsPlaylistFetcher as HlsPlaylistFetcherNode } from '../lib/fetcher.node.js';
-import { HlsPlaylistFetcher as HlsPlaylistFetcherWeb } from '../lib/fetcher.web.js';
+const HlsPlaylistFetcherWeb = (typeof fetch === 'function') ? (await import('../lib/fetcher.web.js')).HlsPlaylistFetcher : HlsPlaylistFetcherBase;   // Only load when fetch() is available
 
 
 const expectCause = (err: any, match: string | RegExp): void => {
