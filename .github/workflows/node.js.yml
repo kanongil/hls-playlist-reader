@@ -28,5 +28,5 @@ jobs:
         check-latest: ${{ matrix.node-version == '*' }}
     - run: npm ci
     - run: npm test -- -r web-streams-polyfill/es2018
-    - if: ${matrix.node-version >= 18}
+    - if: ${{ matrix.node-version >= 18 }}
       - run: npm test
