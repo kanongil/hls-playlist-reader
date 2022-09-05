@@ -29,4 +29,4 @@ jobs:
     - run: npm ci
     - run: npm test -- -r web-streams-polyfill/es2018
     - if: ${{ matrix.node-version >= 18 }}
-      - run: npm test
+      run: npm test
