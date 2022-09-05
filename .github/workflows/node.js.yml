@@ -5,26 +5,28 @@ name: Node.js CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, next ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, next ]
 
 jobs:
-  build:
+  prepare:
+    name: Test using node@${{ matrix.node-version }}
 
     runs-on: ubuntu-latest
 
     strategy:
       matrix:
-        node-version: [14, 16, 18]
+        node-version: [ 14, 16, 18 ]
 
     steps:
     - uses: actions/checkout@v2
     - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v2
+      uses: actions/setup-node@v3
       with:
         node-version: ${{ matrix.node-version }}
         check-latest: ${{ matrix.node-version == '*' }}
     - run: npm ci
-    - run: npm run build --if-present
-    - run: npm test
+    - run: npm test -- -r web-streams-polyfill/es2018
+    - if: ${matrix.node-version >= 18}
+      - run: npm test

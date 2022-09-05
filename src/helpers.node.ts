@@ -1,41 +1,18 @@
 import type { Readable } from 'stream';
-import type { Meta } from 'uristream/lib/uri-reader';
+import type { Meta } from 'uristream/lib/uri-reader.js';
 
 import { EventEmitter } from 'events';
 import { watch } from 'fs';
 import { basename, dirname } from 'path';
-import { URL, fileURLToPath } from 'url';
+import { fileURLToPath } from 'url';
 
-import AgentKeepalive = require('agentkeepalive');
-import { assert as hoekAssert, ignore } from '@hapi/hoek';
-import Uristream = require('uristream');
+import AgentKeepalive from 'agentkeepalive';
+import Uristream from 'uristream';
 
+import { AbortablePromise, AbortError, assert, ChangeWatcher, Deferred, FetchOptions, FetchResult, IChangeWatcher, setAbortControllerImpl } from './helpers.js';
 
-if (!globalThis.DOMException) {
-    try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { MessageChannel } = require('worker_threads');
+export * from './helpers.js';
 
-        const port = new MessageChannel().port1;
-        const ab = new ArrayBuffer(0);
-        port.postMessage(ab, [ab, ab]);
-    }
-    catch (err) {
-        (err as Error).constructor.name === 'DOMException' && (
-            (globalThis as any).DOMException = (err as DOMException).constructor
-        );
-    }
-}
-
-
-export class AbortError extends DOMException {
-    constructor(message: string) {
-
-        super(message, 'AbortError');
-    }
-}
-
-const useInternalAbort = (!globalThis.AbortController || !globalThis.AbortSignal || !globalThis.AbortSignal.prototype.throwIfAborted) as boolean;
 
 /** Simplified AbortSignal for internal usage only */
 class AbortSignalInternal extends EventEmitter {
@@ -70,26 +47,14 @@ class AbortControllerInternal {
     }
 }
 
-export const AbortSignal = useInternalAbort ? AbortSignalInternal : globalThis.AbortSignal;
+/** Ponyfill AbortController when needed */
+export const platformInit = function () {
 
-export const AbortController = useInternalAbort ? AbortControllerInternal : globalThis.AbortController;
+    const useInternalAbort = true; (!globalThis.AbortController || !globalThis.AbortSignal || !globalThis.AbortSignal.prototype.throwIfAborted) as boolean;
 
-
-// eslint-disable-next-line func-style
-export function assert(condition: unknown, ...args: any[]): asserts condition {
-
-    hoekAssert(condition, ...args);
-}
-
-
-export type Byterange = {
-    offset: number;
-    length?: number;
-};
-
-export type FetchResult = {
-    meta: Meta;
-    stream?: Readable;
+    if (useInternalAbort) {
+        setAbortControllerImpl(AbortControllerInternal as any as typeof AbortController);
+    }
 };
 
 
@@ -127,47 +92,14 @@ const internals = {
 };
 
 
-export class Deferred<T> {
-
-    promise: Promise<T>;
-    resolve: (arg?: T | PromiseLike<T>) => void = undefined as any;
-    reject: (err: Error) => void = undefined as any;
-
-    constructor(independent = false) {
-
-        this.promise = new Promise<T>((resolve, reject) => {
-
-            this.resolve = resolve as any;
-            this.reject = reject;
-        });
-
-        if (independent) {
-            this.promise.catch(ignore);
-        }
-    }
-}
-
-
-type AbortablePromise<T> = Promise<T> & { abort: (reason?: Error) => void };
-
-export type FetchOptions = {
-    byterange?: Byterange;
-    probe?: boolean;
-    timeout?: number;
-    retries?: number;
-    blocking?: string | symbol;
-    signal?: AbortSignal | AbortSignalInternal;
-};
-
-
-export const performFetch = function (uri: URL | string, { byterange, probe = false, timeout, retries = 1, blocking, signal }: FetchOptions = {}): AbortablePromise<FetchResult> {
+export const performFetch = function (uri: URL, { byterange, probe = false, timeout, retries = 1, blocking, signal }: FetchOptions = {}): AbortablePromise<FetchResult<Readable>> {
 
     signal?.throwIfAborted();
 
     const streamOptions = Object.assign({
         probe,
         highWaterMark: internals.fetchBuffer,
-        timeout: probe ? 30 * 1000 : timeout,
+        timeout,
         retries
     }, internals.blockingConfig(blocking), byterange ? {
         start: byterange.offset,
@@ -220,11 +152,12 @@ export const performFetch = function (uri: URL | string, { byterange, probe = fa
 
             // Guard against broken uristream
 
-            /* $lab:coverage:off$ */
+            /* $lab:coverage:off$ */ /* c8 ignore start */
+
             if (!err) {
                 err = new Error('No metadata');
             }
-            /* $lab:coverage:on$ */
+            /* $lab:coverage:on$ */ /* c8 ignore stop */
 
             return doFinish(err);
         };
@@ -241,7 +174,7 @@ export const performFetch = function (uri: URL | string, { byterange, probe = fa
 };
 
 
-export const readFetchData = async function ({ stream }: FetchResult) {
+export const readFetchData = async function ({ stream }: FetchResult): Promise<string> {
 
     assert(stream, 'Must have a stream');
 
@@ -256,42 +189,9 @@ export const readFetchData = async function ({ stream }: FetchResult) {
 };
 
 
-export const wait = function (timeout: number, { signal }: { signal?: AbortSignal | AbortSignalInternal } = {}): Promise<void> {
-
-    let timer: any;
-    let reportError: (err: Error) => any;
-    const onSignalAbort = () => {
-
-        clearTimeout(timer);
-        const reason = signal!.reason ?? new AbortError('Wait was aborted');
-        return reportError ? reportError(reason) : Promise.reject(reason);
-    };
-
-    if (signal?.aborted) {
-        return onSignalAbort();
-    }
-
-    return new Promise<void>((resolve, reject) => {
-
-        reportError = reject as any;
-        timer = setTimeout(resolve, timeout);
-        signal?.addEventListener('abort', onSignalAbort);
-    }).finally(() => {
-
-        signal?.removeEventListener('abort', onSignalAbort);
-    });
-};
-
-
-export interface ChangeWatcher {
-    next(timeoutMs?: number): PromiseLike<string> | string;
-    close(): void;
-}
-
-
 type FSWatcherEvents = 'rename' | 'change' | 'timeout';
 
-export class FsWatcher implements ChangeWatcher {
+export class FsWatcher implements IChangeWatcher {
 
     private _watcher: ReturnType<typeof watch>;
     private _last?: FSWatcherEvents;
@@ -402,3 +302,5 @@ export class FsWatcher implements ChangeWatcher {
         }
     }
 }
+
+ChangeWatcher.register('file:', (uri: URL) => new FsWatcher(uri));
