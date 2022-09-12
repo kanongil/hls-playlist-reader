@@ -21,4 +21,10 @@ export class HlsPlaylistReadable extends ReadableStream<PlaylistObject> {
 
         this.fetch = source.fetch!;
     }
+
+    /** @forbidden Method has been disabled. */
+    tee(): any {
+
+        throw new Error('tee() is not supported');
+    }
 }

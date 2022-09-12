@@ -29,7 +29,7 @@ export const arrayAt = Array.prototype.at ? function <T = unknown>(array: readon
 let DOMException = globalThis.DOMException;
 if (!DOMException && typeof process !== 'undefined') {
     try {
-        const { MessageChannel } = await import('worker_threads');
+        const { MessageChannel } = await import('worker' + '_threads');    // Don't use full name to avoid pre-compile from tools
 
         const port = new MessageChannel().port1;
         const ab = new ArrayBuffer(0);

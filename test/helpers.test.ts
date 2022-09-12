@@ -1,15 +1,16 @@
 /* eslint-disable @typescript-eslint/no-loop-func */
 
+import type { performFetch as performFetchNode } from '../lib/helpers.node.js';
+import type { performFetch as performFetchWeb } from '../lib/helpers.web.js';
+
 import { Readable, Stream } from 'stream';
 
 import { expect } from '@hapi/code';
 import { ignore, wait } from '@hapi/hoek';
 
 import { AbortController, Deferred, wait as waitI } from '../lib/helpers.js';
-import { performFetch as performFetchNode } from '../lib/helpers.node.js';
-const performFetchWeb = (typeof fetch === 'function') ? (await import('../lib/helpers.web.js')).performFetch : performFetchNode;   // Only load when fetch() is available
 
-import { provisionServer } from './_shared.js';
+import { hasFetch, provisionServer } from './_shared.js';
 
 declare global {
     // Add AsyncIterator which is implemented by node.js
@@ -22,16 +23,12 @@ const server = await provisionServer();
 await server.start();
 
 const testMatrix = new Map(Object.entries({
-    'node+file': { performFetch: performFetchNode, Class: Readable, baseUrl: new URL('fixtures/', import.meta.url).href },
-    'node+http': { performFetch: performFetchNode, Class: Readable, baseUrl: new URL('simple/', server.info.uri).href },
-    'web+http': { performFetch: performFetchWeb, Class: ReadableStream, baseUrl: new URL('simple/', server.info.uri).href }
+    'node+file': { module: '../lib/helpers.node.js', Class: Readable, baseUrl: new URL('fixtures/', import.meta.url).href },
+    'node+http': { module: '../lib/helpers.node.js', Class: Readable, baseUrl: new URL('simple/', server.info.uri).href },
+    'web+http': { module: '../lib/helpers.web.js', Class: ReadableStream, baseUrl: new URL('simple/', server.info.uri).href, skip: !hasFetch }
 }));
 
-if (typeof fetch !== 'function') {
-    testMatrix.delete('web+http');
-}
-
-for (const [label, { performFetch, Class, baseUrl }] of testMatrix) {
+for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
 
     const destroy = (stream?: InstanceType<typeof Class>): void => {
 
@@ -39,6 +36,17 @@ for (const [label, { performFetch, Class, baseUrl }] of testMatrix) {
     };
 
     describe(`performFetch (${label})`, () => {
+
+        let performFetch: typeof performFetchNode | typeof performFetchWeb;
+
+        before(async function () {
+
+            if (skip) {
+                return this.skip();
+            }
+
+            performFetch = (await import(module)).performFetch;
+        });
 
         it('fetches a file with metadata and stream', async () => {
 
@@ -151,55 +159,60 @@ for (const [label, { performFetch, Class, baseUrl }] of testMatrix) {
             expect(meta.modified).to.be.instanceof(Date);
         });
 
-        if (label.includes('http')) {
-            it('supports "timeout" option', async () => {
+        it('supports "timeout" option', async function () {
 
-                const url = new URL('../slow/500.m3u8', baseUrl);
-                const err = await expect(performFetch(url, { timeout: 1, probe: true })).to.reject(Error);
-                expect(err.name).to.equal('TimeoutError');
-            });
+            if (!label.includes('http')) {
+                return this.skip();
+            }
 
-            label.includes('node') &&
-            it('supports https "blocking" option', async () => {
+            const url = new URL('../slow/500.m3u8', baseUrl);
+            const err = await expect(performFetch(url, { timeout: 1, probe: true })).to.reject(Error);
+            expect(err.name).to.equal('TimeoutError');
+        });
 
-                const blocking = 'test';
+        it('supports https "blocking" option', async function () {
 
-                const fetches = [];
-                try {
-                    for (let i = 0; i < 5; ++i) {
-                        fetches.push((async () => {
+            if (label !== 'node+http') {
+                return this.skip();
+            }
 
-                            const { stream } = await performFetch(new URL('https://www.google.com'), { blocking });
+            const blocking = 'test';
 
-                            const ready = process.hrtime.bigint();
-                            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                            for await (const _ of stream!) { }
-                            const completed = process.hrtime.bigint();
+            const fetches = [];
+            try {
+                for (let i = 0; i < 5; ++i) {
+                    fetches.push((async () => {
 
-                            return { ready, completed };
-                        })());
-                    }
+                        const { stream } = await performFetch(new URL('https://www.google.com'), { blocking });
 
-                    await performFetch(new URL('https://www.google.com'), { probe: true });
-                    const independentReady = process.hrtime.bigint();
+                        const ready = process.hrtime.bigint();
+                        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                        for await (const _ of stream!) { }
+                        const completed = process.hrtime.bigint();
 
-                    expect(fetches).to.have.length(5);
-                    const results = await Promise.all(fetches);
-
-                    let last = { completed: BigInt(0) };
-                    for (let i = 0; i < 5; ++i) {
-                        expect(results[i].ready).to.be.greaterThan(last.completed);
-                        expect(results[i].completed).to.be.greaterThan(results[i].ready);
-                        last = results[i];
-                    }
-
-                    expect(independentReady).to.be.lessThan(results[4].completed);
+                        return { ready, completed };
+                    })());
                 }
-                finally {
-                    await Promise.all(fetches); // Don't leave unhandled promise rejections behind
+
+                await performFetch(new URL('https://www.google.com'), { probe: true });
+                const independentReady = process.hrtime.bigint();
+
+                expect(fetches).to.have.length(5);
+                const results = await Promise.all(fetches);
+
+                let last = { completed: BigInt(0) };
+                for (let i = 0; i < 5; ++i) {
+                    expect(results[i].ready).to.be.greaterThan(last.completed);
+                    expect(results[i].completed).to.be.greaterThan(results[i].ready);
+                    last = results[i];
                 }
-            });
-        }
+
+                expect(independentReady).to.be.lessThan(results[4].completed);
+            }
+            finally {
+                await Promise.all(fetches); // Don't leave unhandled promise rejections behind
+            }
+        });
     });
 }
 

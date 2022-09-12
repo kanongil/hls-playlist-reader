@@ -1,6 +1,6 @@
-import * as Fs from 'fs';
-import * as Os from 'os';
-import * as Path from 'path';
+import Fs from 'fs';
+import Os from 'os';
+import Path from 'path';
 import { pathToFileURL } from 'url';
 
 import { expect } from '@hapi/code';

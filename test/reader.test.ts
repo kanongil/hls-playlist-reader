@@ -11,8 +11,6 @@ import { M3U8Playlist, MainPlaylist, MediaPlaylist, ParserError } from 'm3u8pars
 import * as Shared from './_shared.js';
 import { createReader, HlsPlaylistReadable, HlsPlaylistReaderOptions } from '../lib/index.js';
 import { HlsPlaylistFetcher as HlsPlaylistFetcherBase, HlsPlaylistFetcherOptions, PlaylistObject } from '../lib/fetcher.js';
-import { HlsPlaylistFetcher as HlsPlaylistFetcherNode } from '../lib/fetcher.node.js';
-const HlsPlaylistFetcherWeb = (typeof fetch === 'function') ? (await import('../lib/fetcher.web.js')).HlsPlaylistFetcher : HlsPlaylistFetcherBase;   // Only load when fetch() is available
 
 
 const expectCause = (err: any, match: string | RegExp): void => {
@@ -38,17 +36,23 @@ const expectCause = (err: any, match: string | RegExp): void => {
 
 
 const testMatrix = new Map(Object.entries({
-    'node': { HlsPlaylistFetcher: HlsPlaylistFetcherNode },
-    'web': { HlsPlaylistFetcher: HlsPlaylistFetcherWeb }
+    'node': { module: '../lib/fetcher.node.js' },
+    'web': { module: '../lib/fetcher.web.js', skip: !Shared.hasFetch }
 }));
 
-if (typeof fetch !== 'function') {
-    testMatrix.delete('web');
-}
-
-
-for (const [label, { HlsPlaylistFetcher }] of testMatrix) {
+for (const [label, { module, skip }] of testMatrix) {
     describe(`HlsPlaylistReadable (${label})`, () => {
+
+        let HlsPlaylistFetcher: typeof HlsPlaylistFetcherBase;
+
+        before(async function () {
+
+            if (skip) {
+                return this.skip();
+            }
+
+            HlsPlaylistFetcher = (await import(module)).HlsPlaylistFetcher;
+        });
 
         const readPlaylists = function<T extends M3U8Playlist = MediaPlaylist> (url: string, options?: HlsPlaylistFetcherOptions & HlsPlaylistReaderOptions): Promise<PlaylistObject<T>[]> {
 
@@ -82,7 +86,7 @@ for (const [label, { HlsPlaylistFetcher }] of testMatrix) {
 
         after(() => {
 
-            return server.stop();
+            return server?.stop();
         });
 
         describe('constructor', () => {
@@ -622,8 +626,6 @@ for (const [label, { HlsPlaylistFetcher }] of testMatrix) {
                         expect(reader.fetch.playlist!.preloadHints.part).to.not.exist();
                         playlists.push(obj);
                     }
-
-                    // FIXME: Possible EventTarget memory leak detected
 
                     expect(playlists.length).to.equal(13);
                 });

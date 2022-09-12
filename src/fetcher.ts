@@ -116,6 +116,10 @@ export class HlsPlaylistFetcher {
                 this.#latest = this.#pending;
                 this.#pending = undefined;
                 this._updateStallTimer();
+
+                if (!this.canUpdate()) {
+                    this.cleanup();
+                }
             });
 
         /*if (this.#waiting) {
@@ -148,7 +152,7 @@ export class HlsPlaylistFetcher {
         return !this.#ac.signal.aborted && !!this.#index?.isLive();
     }
 
-    /** Cancel pending index fetch or update wait. They will (eventually) fail with reason or an AbortError. */
+    /** Cancel any pending index fetch or update wait. They will fail with reason or an AbortError. */
     cancel(reason?: Error): void {
 
         if (this.#ac.signal.aborted) {
@@ -156,8 +160,7 @@ export class HlsPlaylistFetcher {
         }
 
         this.#ac.abort(reason ?? new AbortError('Index update was aborted'));
-        this.#watcher?.close();
-        this.#watcher = undefined;
+        this.cleanup();
     }
 
     /**
@@ -260,6 +263,12 @@ export class HlsPlaylistFetcher {
     protected readFetchContent(fetch: FetchResult): Promise<string> {
 
         throw new Error('No fetcher');
+    }
+
+    protected cleanup() {
+
+        this.#watcher?.close();
+        this.#watcher = undefined;
     }
 
     // Private methods
@@ -394,9 +403,7 @@ export class HlsPlaylistFetcher {
                 catch (err) {
                     this.#watcher = undefined;
 
-                    if (this.#ac.signal.aborted) {
-                        throw this.#ac.signal.reason;
-                    }
+                    this.#ac.signal.throwIfAborted();
 
                     /* $lab:coverage:off$ */ /* c8 ignore start */
                     assert(err instanceof Error);

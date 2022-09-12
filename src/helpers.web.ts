@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 
-import { AbortablePromise, AbortError, FetchOptions, FetchResult, TimeoutError } from './helpers.js';
+import { AbortablePromise, AbortError, Deferred, FetchOptions, FetchResult, TimeoutError } from './helpers.js';
 
 export * from './helpers.js';
 
@@ -11,6 +11,8 @@ export const httpHardFail = new Set([301, 400, 401, 410, 501]);
 export const performFetch = function (uri: URL, options: FetchOptions = {}): AbortablePromise<FetchResult<ReadableStream<Uint8Array>>> {
 
     const { signal, timeout } = options;
+
+    // FIXME: The retries option does not work once the response has been received, since the raw body stream is returned
 
     signal?.throwIfAborted();
 
@@ -29,30 +31,20 @@ export const performFetch = function (uri: URL, options: FetchOptions = {}): Abo
     if (signal) {
         const onSignalAbort = () => promise.abort(signal!.reason);
         signal.addEventListener('abort', onSignalAbort);
-        promise.finally(() => signal.removeEventListener('abort', onSignalAbort));
+        promise
+            .then((res) => res.completed)
+            .finally(() => signal.removeEventListener('abort', onSignalAbort));
     }
 
     if (typeof timeout === 'number') {
-        const timer = setTimeout(() => {
-
-            const err = new TimeoutError('Fetch timed out');
-
-            // Manually try to assign a reason, for support on AbortControllers that don't support reason
-
-            try {
-                (ac.signal as any).reason = err;
-            }
-            catch {}
-
-            ac.abort(err);
-        }, timeout);
+        const timer = setTimeout(() => ac.abort(new TimeoutError('Fetch timed out')), timeout);
         promise.finally(() => clearTimeout(timer));
     }
 
     return promise;
 };
 
-const _performFetch = async function (uri: URL, options: Omit<FetchOptions, 'timeout'> & { signal: AbortSignal }): Promise<FetchResult<ReadableStream<Uint8Array>>> {
+const _performFetch = async function (uri: URL, options: Omit<FetchOptions, 'timeout'> & { signal: AbortSignal }): Promise<FetchResult<ReadableStream<Uint8Array>> & { completed: Promise<void> }> {
 
     const { byterange, probe = false, retries = 1, /*blocking,*/ signal } = options;
 
@@ -76,13 +68,19 @@ const _performFetch = async function (uri: URL, options: Omit<FetchOptions, 'tim
             signal
         });
     }
-    catch (err) {
-        throw signal.reason ?? err;
+    finally {
+        signal.throwIfAborted();
     }
 
     if (res.status >= 300) {
         if (retries && !httpHardFail.has(res.status)) {
-            await res.arrayBuffer();    // Empty buffer to allow res to be deallocated
+            try {
+                await res.arrayBuffer();    // Empty buffer to allow res to be deallocated
+            }
+            finally {
+                signal.throwIfAborted();
+            }
+
             return _performFetch(uri, { ...options, retries: retries - 1 });
         }
 
@@ -106,6 +104,29 @@ const _performFetch = async function (uri: URL, options: Omit<FetchOptions, 'tim
 
     const typeparts = /^(.+?\/.+?)(?:;\w*.*)?$/.exec(res.headers.get('content-type')!) || [null, 'application/octet-stream'];
 
+    let stream = !probe ? res.body ?? undefined : undefined;
+    let completed: Promise<void>;
+    if (stream) {
+        const done = new Deferred<void>();
+        const [orig, monitor] = stream.tee();
+
+        // This has the side-effect of loading all data into the stream without considering pressure
+        // This is a desirable feature for our use-cases
+
+        // TODO: add a bytelimit?
+
+        monitor.pipeTo(new WritableStream({
+            abort: (reason) => done.reject(reason || new AbortError('Fetch aborted during stream download')),    // TODO: test!!
+            close: () => done.resolve()
+        })).catch(() => undefined);
+
+        stream = orig;
+        completed = done.promise;
+    }
+    else {
+        completed = Promise.resolve();
+    }
+
     return {
         meta: {
             url: res.url,
@@ -114,7 +135,8 @@ const _performFetch = async function (uri: URL, options: Omit<FetchOptions, 'tim
             modified: res.headers.has('last-modified') ? new Date(res.headers.get('last-modified')!) : null,
             etag: res.headers.get('etag') ?? undefined
         },
-        stream: !probe ? res.body ?? undefined : undefined
+        stream,
+        completed
     };
 };
 
