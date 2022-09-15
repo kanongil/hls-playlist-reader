@@ -259,4 +259,4 @@ export const genLlIndex = function (query: Hapi.RequestQuery, state: LlIndexStat
     return index;
 };
 
-export const hasFetch = typeof fetch !== 'function';
+export const hasFetch = typeof fetch === 'function';
