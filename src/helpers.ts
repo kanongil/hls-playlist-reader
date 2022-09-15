@@ -83,6 +83,7 @@ export type FetchOptions = {
     timeout?: number;
     retries?: number;
     blocking?: string | symbol;
+    fresh?: boolean;
     signal?: AbortSignal;
 };
 

@@ -59,7 +59,7 @@ const _performFetch = async function (uri: URL, options: Omit<FetchOptions, 'tim
     let res;
     try {
         res = await fetch(uri, {
-            cache: 'no-store',
+            cache: options.fresh ? 'no-store' : 'default',
             method: probe ? 'HEAD' : 'GET',
             headers,
             redirect: 'follow',                // TODO: use manual mode?!?!

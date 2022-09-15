@@ -417,7 +417,7 @@ export class HlsPlaylistFetcher {
         }
 
         try {
-            return await this._updateIndex(this._fetchIndexFrom(url, { blocking }));
+            return await this._updateIndex(this._fetchIndexFrom(url, { blocking, fresh: !blocking }));
         }
         catch (err: any) {
             if (err.isBoom || typeof err.httpStatus === 'number' || typeof err.statusCode === 'number') {
