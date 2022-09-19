@@ -1,6 +1,8 @@
+import type { ImmutableMediaPlaylist, ImmutableMediaSegment } from 'm3u8parse/playlist';
+
 import { arrayAt, Byterange } from './helpers.js';
 
-import { AttrList, MediaPlaylist, MediaSegment } from 'm3u8parse';
+import { MediaPlaylist } from 'm3u8parse';
 
 
 export type PartData = {
@@ -15,15 +17,16 @@ export type PreloadHints = {
 
 export class ParsedPlaylist {
 
-    private _index: Readonly<MediaPlaylist>;
+    private _index: ImmutableMediaPlaylist;
     private _stripLowLatency: boolean;
 
-    constructor(index: Readonly<MediaPlaylist>, options: { noLowLatency?: boolean } = {}) {
+    constructor(index: MediaPlaylist | ImmutableMediaPlaylist, options?: { noLowLatency?: boolean });
+    constructor(index: ImmutableMediaPlaylist, options: { noLowLatency?: boolean } = {}) {
 
         this._stripLowLatency = !!options.noLowLatency;
 
         if (this._stripLowLatency) {
-            const stripped = index = new MediaPlaylist(index);
+            const stripped = new MediaPlaylist(index);
 
             delete stripped.part_info;
             delete stripped.meta.preload_hints;
@@ -38,6 +41,8 @@ export class ParsedPlaylist {
             for (const segment of stripped.segments) {
                 delete segment.parts;
             }
+
+            index = stripped as ImmutableMediaPlaylist;
         }
 
         this._index = index;
@@ -89,12 +94,12 @@ export class ParsedPlaylist {
         return { msn: this._index.lastMsn(false) + 1 };
     }
 
-    get index(): Readonly<MediaPlaylist> {
+    get index(): ImmutableMediaPlaylist {
 
         return this._index;
     }
 
-    get segments(): readonly Readonly<MediaSegment>[] {
+    get segments(): readonly ImmutableMediaSegment[] {
 
         return this._index.segments;
     }
@@ -102,7 +107,7 @@ export class ParsedPlaylist {
     get partTarget(): number | undefined {
 
         const info = this._index.part_info;
-        return info?.get('part-target', AttrList.Types.Float);
+        return info?.get('part-target', 'float');
     }
 
     get serverControl(): { canBlockReload: boolean; partHoldBack?: number } {
@@ -110,7 +115,7 @@ export class ParsedPlaylist {
         const control = this._index.server_control;
         return {
             canBlockReload: control?.get('can-block-reload') === 'YES',
-            partHoldBack: control?.get('part-hold-back', AttrList.Types.Float)
+            partHoldBack: control?.get('part-hold-back', 'float')
         };
     }
 
@@ -123,10 +128,10 @@ export class ParsedPlaylist {
             const type = attrs.get('type')?.toLowerCase();
             if (attrs.has('uri') && type === 'part' || type === 'map') {
                 hints[type] = {
-                    uri: attrs.get('uri', AttrList.Types.String)!,
+                    uri: attrs.get('uri', 'string')!,
                     byterange: attrs.has('byterange-start') ? {
-                        offset: attrs.get('byterange-start', AttrList.Types.Int)!,
-                        length: (attrs.has('byterange-length') ? attrs.get('byterange-length', AttrList.Types.Int)! : undefined)
+                        offset: attrs.get('byterange-start', 'int')!,
+                        length: (attrs.has('byterange-length') ? attrs.get('byterange-length', 'int')! : undefined)
                     } : undefined
                 };
             }

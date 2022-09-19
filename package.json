@@ -31,24 +31,18 @@
   "exports": {
     ".": "./lib/index.js",
     "./fetcher": {
-      "default": "./lib/fetcher.web.js",
-      "node": "./lib/fetcher.node.js"
+      "default": "./lib/fetcher.web.js"
     },
     "./helpers": {
-      "default": "./lib/helpers.web.js",
-      "node": "./lib/helpers.node.js"
+      "default": "./lib/helpers.web.js"
     },
-    "./playlist": "./lib/playlist.js",
-    "./playlist-readable": {
-      "default": "./lib/playlist-reader.web.js",
-      "node": "./lib/playlist-reader.node.js"
-    }
+    "./playlist": "./lib/playlist.js"
   },
   "dependencies": {
     "@hapi/boom": "^10.0.0",
     "@hapi/hoek": "^10.0.1",
     "agentkeepalive": "^4.1.3",
-    "m3u8parse": "^4.0.0-rc3",
+    "m3u8parse": "^4.0.0-rc4",
     "uristream": "^6.3.0"
   },
   "devDependencies": {
