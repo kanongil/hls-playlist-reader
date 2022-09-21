@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 
-import { AbortablePromise, AbortError, Deferred, FetchOptions, FetchResult, TimeoutError } from './helpers.js';
+import { AbortablePromise, AbortError, FetchOptions, FetchResult, TimeoutError } from './helpers.js';
 
 export * from './helpers.js';
 
@@ -107,7 +107,6 @@ const _performFetch = async function (uri: URL, options: Omit<FetchOptions, 'tim
     let stream = !probe ? res.body ?? undefined : undefined;
     let completed: Promise<void>;
     if (stream) {
-        const done = new Deferred<void>();
         const [orig, monitor] = stream.tee();
 
         // This has the side-effect of loading all data into the stream without considering pressure
@@ -115,13 +114,16 @@ const _performFetch = async function (uri: URL, options: Omit<FetchOptions, 'tim
 
         // TODO: add a bytelimit?
 
-        monitor.pipeTo(new WritableStream({
-            abort: (reason) => done.reject(reason || new AbortError('Fetch aborted during stream download')),    // TODO: test!!
-            close: () => done.resolve()
-        })).catch(() => undefined);
+        completed = new Promise<void>((resolve, reject) => {
 
-        stream = orig;
-        completed = done.promise;
+            monitor.pipeTo(new WritableStream({
+                abort: (reason) => reject(reason || new AbortError('Fetch aborted during stream download')),    // TODO: test!!
+                close: () => resolve()
+            }), { signal }).catch(() => undefined);
+
+            stream = orig;
+        });
+        completed.catch(() => undefined);
     }
     else {
         completed = Promise.resolve();
@@ -167,4 +169,12 @@ export const readFetchData = async function ({ stream }: FetchResult<ReadableStr
     }
 
     return new TextDecoder('utf-8').decode(merged);
+};
+
+export const cancelFetch = function (fetch: FetchResult<ReadableStream<Uint8Array>> | undefined, reason?: Error): void {
+
+    if (fetch?.stream) {
+        fetch.stream.cancel(reason).catch(() => undefined);
+        fetch.stream = undefined;
+    }
 };

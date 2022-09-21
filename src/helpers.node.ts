@@ -1,10 +1,11 @@
-import type { Readable } from 'stream';
 import type { Meta } from 'uristream/lib/uri-reader.js';
 
 import { EventEmitter } from 'events';
 import { watch } from 'fs';
 import { basename, dirname } from 'path';
+import { finished, Readable } from 'stream';
 import { fileURLToPath } from 'url';
+import { promisify } from 'util';
 
 import AgentKeepalive from 'agentkeepalive';
 import Uristream from 'uristream';
@@ -12,6 +13,9 @@ import Uristream from 'uristream';
 import { AbortablePromise, AbortError, assert, ChangeWatcher, Deferred, FetchOptions, FetchResult, IChangeWatcher, setAbortControllerImpl } from './helpers.js';
 
 export * from './helpers.js';
+
+
+const streamFinished = promisify(finished);
 
 
 /** Simplified AbortSignal for internal usage only */
@@ -129,7 +133,10 @@ export const performFetch = function (uri: URL, { byterange, probe = false, time
                 stream.resume();     // Ensure that we actually end
             }
 
-            process.nextTick(() => resolve({ meta, stream: probe ? undefined : stream }));
+            const completed = streamFinished(stream, { signal });
+            completed.catch(() => undefined);
+
+            process.nextTick(() => resolve({ meta, stream: probe ? undefined : stream, completed }));
         };
 
         const onMeta = (meta: Meta) => {
@@ -174,7 +181,7 @@ export const performFetch = function (uri: URL, { byterange, probe = false, time
 };
 
 
-export const readFetchData = async function ({ stream }: FetchResult): Promise<string> {
+export const readFetchData = async function ({ stream }: FetchResult<Readable>): Promise<string> {
 
     assert(stream, 'Must have a stream');
 
@@ -186,6 +193,15 @@ export const readFetchData = async function ({ stream }: FetchResult): Promise<s
     }
 
     return content;
+};
+
+
+export const cancelFetch = function (fetch: FetchResult<Readable> | undefined, reason?: Error): void {
+
+    if (fetch?.stream) {
+        fetch.stream.destroy(reason);
+        fetch.stream = undefined;
+    }
 };
 
 
