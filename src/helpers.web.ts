@@ -86,9 +86,8 @@ const _performFetch = async function (uri: URL, options: Omit<FetchOptions, 'tim
 
         if (res.status >= 400) {
             throw Object.assign(
-                new Error('Fetch failed'), {
-                    httpStatus: res.status,
-                    cause: res.statusText
+                new Error('Fetch failed', { cause: res.statusText }), {
+                    httpStatus: res.status
                 }
             );
         }

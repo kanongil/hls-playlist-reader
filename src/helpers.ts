@@ -45,16 +45,18 @@ if (!DOMException && typeof process !== 'undefined') {
 
 
 export class AbortError extends DOMException {
-    constructor(message: string) {
+    constructor(message: string, options?: { cause: unknown }) {
 
         super(message, 'AbortError');
+        this.cause = options?.cause;
     }
 }
 
 export class TimeoutError extends DOMException {
-    constructor(message: string) {
+    constructor(message: string, options?: { cause: unknown }) {
 
         super(message, 'TimeoutError');
+        this.cause = options?.cause;
     }
 }
 
