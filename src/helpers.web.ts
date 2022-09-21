@@ -33,18 +33,18 @@ export const performFetch = function (uri: URL, options: FetchOptions = {}): Abo
         signal.addEventListener('abort', onSignalAbort);
         promise
             .then((res) => res.completed)
-            .finally(() => signal.removeEventListener('abort', onSignalAbort));
+            .catch(() => undefined).then(() => signal.removeEventListener('abort', onSignalAbort));
     }
 
     if (typeof timeout === 'number') {
         const timer = setTimeout(() => ac.abort(new TimeoutError('Fetch timed out')), timeout);
-        promise.finally(() => clearTimeout(timer));
+        promise.catch(() => undefined).then(() => clearTimeout(timer));
     }
 
     return promise;
 };
 
-const _performFetch = async function (uri: URL, options: Omit<FetchOptions, 'timeout'> & { signal: AbortSignal }): Promise<FetchResult<ReadableStream<Uint8Array>> & { completed: Promise<void> }> {
+const _performFetch = async function (uri: URL, options: Omit<FetchOptions, 'timeout'> & { signal: AbortSignal }): Promise<FetchResult<ReadableStream<Uint8Array>>> {
 
     const { byterange, probe = false, retries = 1, /*blocking,*/ signal } = options;
 
