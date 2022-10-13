@@ -8,6 +8,12 @@ export type HlsPlaylistFetcherOptions = {
     /** True to handle LL-HLS streams */
     lowLatency?: boolean;
 
+    /** Initial msn and part to request index from. */
+    head?: {
+        msn: number;
+        part?: number;
+    };
+
     extensions?: { [K: string]: boolean };
 
     onProblem?: (err: Error) => void;
@@ -53,6 +59,7 @@ export class HlsPlaylistFetcher {
 
     lowLatency: boolean;
     readonly extensions: HlsPlaylistFetcherOptions['extensions'];
+    readonly from: HlsPlaylistFetcherOptions['head'];
 
     readonly baseUrl: string;
     readonly modified?: Date;
@@ -76,7 +83,8 @@ export class HlsPlaylistFetcher {
         this.baseUrl = this.url.href;
 
         this.lowLatency = !!options.lowLatency;
-        this.extensions = options.extensions ?? {};
+        this.extensions = options.extensions;
+        this.from = options.head;
 
         if (options.onProblem) {
             this.onProblem = options.onProblem;
@@ -94,8 +102,18 @@ export class HlsPlaylistFetcher {
     index(): Promise<PlaylistObject> {
 
         if (!this.#latest) {
-            this.#watcher = ChangeWatcher.create(this.url);
-            this.#latest = this._updateIndex(this._fetchIndexFrom(this.url));
+            let url = this.url;
+            let blocking = undefined;
+
+            this.#watcher = ChangeWatcher.create(url);
+
+            if (this.from) {
+                url = new URL(url);
+                this._addMsnPart(url, this.from);
+                blocking = url.href;
+            }
+
+            this.#latest = this._updateIndex(this._fetchIndexFrom(url, { blocking }));
         }
 
         return this.#latest;
@@ -360,6 +378,16 @@ export class HlsPlaylistFetcher {
         return { index: this.#index!, playlist: this.#playlist, meta: { url: meta.url, modified: this.modified, updated: this.updated! } };
     }
 
+    private _addMsnPart(url: URL, { msn, part }: { msn: number; part?: number }): void {
+
+        // Params should appear in UTF-8 order
+
+        url.searchParams.set('_HLS_msn', `${msn}`);
+        if (part !== undefined) {
+            url.searchParams.set('_HLS_part', `${part}`);
+        }
+    }
+
     /**
      * Calls _performUpdate() with corrected url, after an approriate delay
      */
@@ -384,12 +412,7 @@ export class HlsPlaylistFetcher {
 
             // TODO: detect when playlist is behind server, and guess future part instead / CDN tunein
 
-            // Params should appear in UTF-8 order
-
-            url.searchParams.set('_HLS_msn', `${head.msn}`);
-            if (head.part !== undefined) {
-                url.searchParams.set('_HLS_part', `${head.part}`);
-            }
+            this._addMsnPart(url, head);
 
             blocking = this.url.href;
             delayMs = 0;
