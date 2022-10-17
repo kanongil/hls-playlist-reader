@@ -82,6 +82,45 @@ export type FetchResult<T extends object | unknown = unknown> = {
     completed: Promise<void>;
 };
 
+/**
+ * Interface that can be implemented to track a fetch.
+ */
+export interface IDownloadTracker<Token = unknown> {
+
+    /**
+     * Called right as the download is being requested.
+     *
+     * @param url - The requested uri.
+     * @param blocking - Whether this is a blocking request, where the server can defer the response.
+     *
+     * @return An unique opaque Token that is passed to the advance() and finish() callbacks.
+     */
+    start(url: URL, blocking?: boolean): Token;
+
+    /**
+     * Called whenever a chunk payload data has been received.
+     *
+     * The first call to this can have a `0` bytes value, to signal that a response has been received.
+     * This is not called, if the response has a >= 300 status code.
+     *
+     * Note: If an Error is thrown, it will be ignored, and no further callbacks will be triggered.
+     *
+     * @param token - The Token returned from start().
+     * @param bytes - The byte size of the data chunk.
+     */
+    advance?(token: Token, bytes: number): void;
+
+    /**
+     * Called when no more chunks will be received for the Token.
+     *
+     * Note: If an Error is thrown, it will be ignored.
+     *
+     * @param token - The Token returned from start().
+     * @param err - Set with Error on connection issue or abort.
+     */
+    finish?(token: Token, err?: Error | null | void): void;
+}
+
 export type FetchOptions = {
     byterange?: Byterange;
     probe?: boolean;
@@ -90,6 +129,7 @@ export type FetchOptions = {
     blocking?: string | symbol;
     fresh?: boolean;
     signal?: AbortSignal;
+    tracker?: IDownloadTracker;
 };
 
 

@@ -96,9 +96,11 @@ const internals = {
 };
 
 
-export const performFetch = function (uri: URL, { byterange, probe = false, timeout, retries = 1, blocking, signal }: FetchOptions = {}): AbortablePromise<FetchResult<Readable>> {
+export const performFetch = function (uri: URL, { byterange, probe = false, timeout, retries = 1, blocking, signal, tracker }: FetchOptions = {}): AbortablePromise<FetchResult<Readable>> {
 
     signal?.throwIfAborted();
+
+    assert(!tracker, 'Tracking is not yet supported');
 
     const streamOptions = Object.assign({
         probe,

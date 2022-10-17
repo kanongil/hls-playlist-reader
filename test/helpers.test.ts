@@ -3,12 +3,12 @@
 import type { performFetch as performFetchNode } from '../lib/helpers.node.js';
 import type { performFetch as performFetchWeb } from '../lib/helpers.web.js';
 
-import { Readable, Stream } from 'stream';
+import { Readable } from 'stream';
 
 import { expect } from '@hapi/code';
 import { ignore, wait } from '@hapi/hoek';
 
-import { AbortController, Deferred, wait as waitI } from '../lib/helpers.js';
+import { AbortController, Deferred, FetchResult, IDownloadTracker, wait as waitI } from '../lib/helpers.js';
 
 import { hasFetch, provisionServer } from './_shared.js';
 
@@ -30,14 +30,10 @@ const testMatrix = new Map(Object.entries({
 
 for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
 
-    const destroy = (stream?: InstanceType<typeof Class>): void => {
-
-        stream instanceof Stream ? stream.destroy() : stream?.cancel();
-    };
-
     describe(`performFetch (${label})`, () => {
 
         let performFetch: typeof performFetchNode | typeof performFetchWeb;
+        let cancelFetch: (fetch: FetchResult<ReadableStream<Uint8Array> | Readable>, reason?: Error) => void;
 
         before(async function () {
 
@@ -46,22 +42,23 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
             }
 
             performFetch = (await import(module)).performFetch;
+            cancelFetch = (await import(module)).cancelFetch;
         });
 
         it('fetches a file with metadata and stream', async () => {
 
             const url = new URL('500.m3u8', baseUrl);
-            const { stream, meta } = await performFetch(url);
+            const fetch = await performFetch(url);
+            expect(fetch.stream).to.be.instanceof(Class);
 
-            destroy(stream);
+            cancelFetch(fetch);
 
-            //expect(stream).to.be.instanceof(Class);
-            expect(meta).to.contain({
+            expect(fetch.meta).to.contain({
                 mime: 'application/vnd.apple.mpegurl',
                 size: 416,
                 url: url.href
             } as any);
-            expect(meta.modified).to.be.instanceof(Date);
+            expect(fetch.meta.modified).to.be.instanceof(Date);
         });
 
         it('stream contains file data', async () => {
@@ -134,29 +131,29 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
         it('supports "byterange" option', async () => {
 
             const url = new URL('500.m3u8', baseUrl);
-            const { stream, meta } = await performFetch(url, { byterange: { offset: 10, length: 2000 } });
-            destroy(stream);
+            const fetch = await performFetch(url, { byterange: { offset: 10, length: 2000 } });
+            cancelFetch(fetch);
 
-            expect(meta).to.contain({
+            expect(fetch.meta).to.contain({
                 mime: 'application/vnd.apple.mpegurl',
                 size: 406,
                 url: url.href
             } as any);
-            expect(meta.modified).to.be.instanceof(Date);
+            expect(fetch.meta.modified).to.be.instanceof(Date);
         });
 
         it('supports "byterange" option without "length"', async () => {
 
             const url = new URL('500.m3u8', baseUrl);
-            const { stream, meta } = await performFetch(url, { byterange: { offset: 400 } });
-            destroy(stream);
+            const fetch = await performFetch(url, { byterange: { offset: 400 } });
+            cancelFetch(fetch);
 
-            expect(meta).to.contain({
+            expect(fetch.meta).to.contain({
                 mime: 'application/vnd.apple.mpegurl',
                 size: 16,
                 url: url.href
             } as any);
-            expect(meta.modified).to.be.instanceof(Date);
+            expect(fetch.meta.modified).to.be.instanceof(Date);
         });
 
         it('supports "timeout" option', async function () {
@@ -212,6 +209,210 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
             finally {
                 await Promise.all(fetches); // Don't leave unhandled promise rejections behind
             }
+        });
+
+        describe('supports "tracker" option', () => {
+
+            const setupTracker = function () {
+
+                const maybeFail = (part: string) => {
+
+                    if (state.fail) {
+                        delete state.fail;
+                        throw new Error(`${part} failed`);
+                    }
+                };
+
+                const state: { total?: number; started?: true; ended?: boolean; fail?: boolean } = {};
+                const tracker: IDownloadTracker<typeof state> = {
+                    start(uri, blocking) {
+
+                        state.started = true;
+                        delete state.ended;
+                        state.total = undefined;
+
+                        maybeFail('start');
+                        return state;
+                    },
+                    advance(token, bytes) {
+
+                        maybeFail('advance');
+                        token.total = (token.total ?? 0) + bytes;
+                    },
+                    finish(token, err) {
+
+                        token.ended = false;
+                        maybeFail('finish');
+                        token.ended = true;
+                    }
+                };
+
+                return { state, tracker };
+            };
+
+            before(function () {
+
+                if (label !== 'web+http') {
+                    return this.skip();
+                }
+            });
+
+            it('for regular requests', async () => {
+
+                const { state, tracker } = setupTracker();
+
+                const url = new URL('500.m3u8', baseUrl);
+                const promise = performFetch(url, { tracker });
+                expect(state).to.equal({ total: undefined, started: true });
+                const { stream } = await promise;
+
+                expect(state).to.equal({ total: 0, started: true });
+
+                let transferred = 0;
+                for await (const chunk of stream!) {
+                    transferred += (chunk as Buffer).length;
+                    expect(state).to.equal({ total: transferred, started: true });
+                }
+
+                await wait(0);
+                expect(state).to.equal({ total: transferred, started: true, ended: true });
+            });
+
+            it('with "probe" option', async () => {
+
+                const { state, tracker } = setupTracker();
+
+                const url = new URL('500.m3u8', baseUrl);
+                const promise = performFetch(url, { tracker, probe: true });
+                expect(state).to.equal({ total: undefined, started: true });
+                const { stream } = await promise;
+                expect(stream).to.not.exist();
+
+                await wait(0);
+                expect(state).to.equal({ total: undefined, started: true, ended: true });
+            });
+
+            it('on request errors', async () => {
+
+                const { state, tracker } = setupTracker();
+
+                // 404
+                {
+                    const url = new URL('notFound.m3u8', baseUrl);
+                    const promise = performFetch(url, { tracker });
+                    expect(state).to.equal({ total: undefined, started: true });
+                    await expect(promise).to.reject(Error, 'Fetch failed');
+                    expect(state).to.equal({ total: undefined, started: true, ended: true });
+                }
+
+                // hard error
+                if (label.includes('http')) {
+                    const url = new URL('http://does.not.exist');
+                    const promise = performFetch(url, { tracker });
+                    expect(state).to.equal({ total: undefined, started: true });
+                    await expect(promise).to.reject(Error);
+                    expect(state).to.equal({ total: undefined, started: true, ended: true });
+                }
+            });
+
+            it('on stream abort/disconnect', async () => {
+
+                const { state, tracker } = setupTracker();
+
+                const url = new URL('500.m3u8', baseUrl);
+                const fetch = performFetch(url, { tracker });
+                const { stream } = await fetch;
+
+                expect(state).to.equal({ total: 0, started: true });
+                fetch.abort();
+
+                let transferred = 0;
+                const err = await expect((async () => {
+
+                    for await (const chunk of stream!) {
+                        transferred += (chunk as Buffer).length;
+                        expect(state).to.equal({ total: transferred, started: true, ended: true });
+                    }
+                })()).to.reject(Error);
+                expect(err.name).to.equal('AbortError');
+                expect(state).to.equal({ total: transferred, started: true, ended: true });
+            });
+
+            it('when it throws', async () => {
+
+                const { state, tracker } = setupTracker();
+
+                const url = new URL('500.m3u8', baseUrl);
+
+                // Fail in start()
+                state.fail = true;
+                await expect(performFetch(url, { tracker })).to.reject(Error, 'start failed');
+
+                // Fail in initial advance()
+                {
+                    const promise = performFetch(url, { tracker });
+                    state.fail = true;
+                    await expect(promise).to.not.reject();
+
+                    let transferred = 0;
+                    for await (const chunk of (await promise).stream!) {
+                        transferred += (chunk as Buffer).length;
+                    }
+
+                    expect(transferred).to.equal(416);
+                    await wait(0);
+                    expect(state.ended).to.be.undefined();
+                }
+
+                // Fail in advance()
+                {
+                    const { stream } = await performFetch(url, { tracker });
+
+                    state.fail = true;
+
+                    let transferred = 0;
+                    for await (const chunk of stream!) {
+                        transferred += (chunk as Buffer).length;
+                    }
+
+                    expect(transferred).to.equal(416);
+                    await wait(0);
+                    expect(state.ended).to.be.undefined();
+                }
+
+                // Fail in finish()
+                {
+                    const { stream } = await performFetch(url, { tracker });
+
+                    let transferred = 0;
+                    for await (const chunk of stream!) {
+                        transferred += (chunk as Buffer).length;
+                    }
+
+                    state.fail = true;
+
+                    expect(transferred).to.equal(416);
+                    expect(state.ended).to.be.undefined();
+                    await wait(0);
+                    expect(state.ended).to.be.false();
+                }
+
+                // Fail in finish() on request error
+                if (label.includes('http')) {
+                    const promise = performFetch(new URL('http://does.not.exist'), { tracker });
+                    state.fail = true;
+                    await expect(promise).to.reject(Error);
+                    expect(state.ended).to.be.false();
+                }
+
+                // Fail in finish() on 404
+                {
+                    const promise = performFetch(new URL('notFound.m3u8', baseUrl), { tracker });
+                    state.fail = true;
+                    await expect(promise).to.reject(Error, 'Fetch failed');
+                    expect(state.ended).to.be.false();
+                }
+            });
         });
     });
 }

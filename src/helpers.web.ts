@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 
-import { AbortablePromise, AbortError, FetchOptions, FetchResult, TimeoutError } from './helpers.js';
+import { AbortablePromise, AbortError, assert, FetchOptions, FetchResult, TimeoutError } from './helpers.js';
 
 export * from './helpers.js';
 
@@ -46,7 +46,8 @@ export const performFetch = function (uri: URL, options: FetchOptions = {}): Abo
 
 const _performFetch = async function (uri: URL, options: Omit<FetchOptions, 'timeout'> & { signal: AbortSignal }): Promise<FetchResult<ReadableStream<Uint8Array>>> {
 
-    const { byterange, probe = false, retries = 1, /*blocking,*/ signal } = options;
+    const { byterange, probe = false, retries = 1, blocking, signal } = options;
+    let { tracker } = options;
 
     const headers: { [key: string]: string } = {};
 
@@ -56,89 +57,123 @@ const _performFetch = async function (uri: URL, options: Omit<FetchOptions, 'tim
         headers.range = 'bytes=' + start + '-' + (end! >= 0 ? end : '');
     }
 
-    let res;
-    try {
-        res = await fetch(uri, {
-            cache: options.fresh ? 'no-store' : 'default',
-            method: probe ? 'HEAD' : 'GET',
-            headers,
-            redirect: 'follow',                // TODO: use manual mode?!?!
-            credentials: 'omit',
-            mode: 'cors',
-            signal
-        });
-    }
-    finally {
-        signal.throwIfAborted();
-    }
+    let completed: Promise<void> | undefined;
 
-    if (res.status >= 300) {
-        if (retries && !httpHardFail.has(res.status)) {
+    const _token = tracker?.start(uri, !!blocking);
+    const trackerMethod = function (method: 'advance' | 'finish') {
+
+        return tracker?.[method] ? (arg?: any) => {
+
             try {
-                await res.arrayBuffer();    // Empty buffer to allow res to be deallocated
+                tracker?.[method]!(_token, arg);
             }
-            finally {
-                signal.throwIfAborted();
+            catch (err) {
+                // Ignore this error and cancel tracking
+                tracker = undefined;
             }
+        } : undefined;
+    };
 
-            return _performFetch(uri, { ...options, retries: retries - 1 });
+    const advance = trackerMethod('advance');
+    const finish = trackerMethod('finish');
+    try {
+        let res;
+        try {
+            res = await fetch(uri, {
+                cache: options.fresh ? 'no-store' : 'default',
+                method: probe ? 'HEAD' : 'GET',
+                headers,
+                redirect: 'follow',                // TODO: use manual mode?!?!
+                credentials: 'omit',
+                mode: 'cors',
+                signal
+            });
+        }
+        catch (err) {
+            assert(err instanceof Error);
+            finish?.(err);
+            throw err;
+        }
+        finally {
+            signal.throwIfAborted();
         }
 
-        if (res.status >= 400) {
+        if (res.status >= 300) {
+            finish?.();
+
+            if (retries && !httpHardFail.has(res.status)) {
+                try {
+                    await res.arrayBuffer();    // Empty buffer to allow res to be deallocated
+                }
+                finally {
+                    signal.throwIfAborted();
+                }
+
+                return _performFetch(uri, { ...options, tracker, retries: retries - 1 });
+            }
+
             throw Object.assign(
                 new Error('Fetch failed', { cause: res.statusText }), {
                     httpStatus: res.status
                 }
             );
         }
-    }
 
-    let contentLength = -1;
-    if (res.headers.has('content-length')) {
-        const contentEncoding = res.headers.get('content-encoding');
-        if (contentEncoding === 'identity' || !contentEncoding) {
-            contentLength = parseInt(res.headers.get('content-length')!, 10);
+        if (!probe) {
+            advance?.(0);
+        }
+
+        let contentLength = -1;
+        if (res.headers.has('content-length')) {
+            const contentEncoding = res.headers.get('content-encoding');
+            if (contentEncoding === 'identity' || !contentEncoding) {
+                contentLength = parseInt(res.headers.get('content-length')!, 10);
+            }
+        }
+
+        const typeparts = /^(.+?\/.+?)(?:;\w*.*)?$/.exec(res.headers.get('content-type')!) || [null, 'application/octet-stream'];
+
+        let stream = !probe ? res.body ?? undefined : undefined;
+        if (stream) {
+            const [orig, monitor] = stream.tee();
+
+            // This has the side-effect of loading all data into the stream without considering pressure
+            // This is a desirable feature for our use-cases
+
+            // TODO: add a bytelimit?
+
+            completed = new Promise<void>((resolve, reject) => {
+
+                monitor.pipeTo(new WritableStream({
+                    write: advance ? (chunk) => advance(chunk.byteLength) : undefined,
+                    abort: (reason) => reject(reason || new AbortError('Fetch aborted during stream download')),    // TODO: test!!
+                    close: () => resolve()
+                }), { signal }).catch(() => undefined);
+
+                stream = orig;
+            });
+        }
+        else {
+            completed = Promise.resolve();
+        }
+
+        return {
+            meta: {
+                url: res.url,
+                mime: typeparts[1]!.toLowerCase(),
+                size: contentLength,
+                modified: res.headers.has('last-modified') ? new Date(res.headers.get('last-modified')!) : null,
+                etag: res.headers.get('etag') ?? undefined
+            },
+            stream,
+            completed
+        };
+    }
+    finally {
+        if (completed) {
+            finish ? completed.then(finish, finish) : completed.catch(() => undefined);
         }
     }
-
-    const typeparts = /^(.+?\/.+?)(?:;\w*.*)?$/.exec(res.headers.get('content-type')!) || [null, 'application/octet-stream'];
-
-    let stream = !probe ? res.body ?? undefined : undefined;
-    let completed: Promise<void>;
-    if (stream) {
-        const [orig, monitor] = stream.tee();
-
-        // This has the side-effect of loading all data into the stream without considering pressure
-        // This is a desirable feature for our use-cases
-
-        // TODO: add a bytelimit?
-
-        completed = new Promise<void>((resolve, reject) => {
-
-            monitor.pipeTo(new WritableStream({
-                abort: (reason) => reject(reason || new AbortError('Fetch aborted during stream download')),    // TODO: test!!
-                close: () => resolve()
-            }), { signal }).catch(() => undefined);
-
-            stream = orig;
-        });
-        completed.catch(() => undefined);
-    }
-    else {
-        completed = Promise.resolve();
-    }
-
-    return {
-        meta: {
-            url: res.url,
-            mime: typeparts[1]!.toLowerCase(),
-            size: contentLength,
-            modified: res.headers.has('last-modified') ? new Date(res.headers.get('last-modified')!) : null,
-            etag: res.headers.get('etag') ?? undefined
-        },
-        stream,
-        completed
-    };
 };
 
 // TODO: rename to readFetchText??
