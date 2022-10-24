@@ -98,7 +98,7 @@ export interface IDownloadTracker<Token = unknown> {
     start(url: URL, blocking?: boolean): Token;
 
     /**
-     * Called whenever a chunk payload data has been received.
+     * Called whenever a chunk of payload data has been received.
      *
      * The first call to this can have a `0` bytes value, to signal that a response has been received.
      * This is not called, if the response has a >= 300 status code.

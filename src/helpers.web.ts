@@ -145,7 +145,7 @@ const _performFetch = async function (uri: URL, options: Omit<FetchOptions, 'tim
             completed = new Promise<void>((resolve, reject) => {
 
                 monitor.pipeTo(new WritableStream({
-                    write: advance ? (chunk) => advance(chunk.byteLength) : undefined,
+                    write: advance ? (chunk) => advance(chunk.byteLength) : () => undefined,
                     abort: (reason) => reject(reason || new AbortError('Fetch aborted during stream download')),    // TODO: test!!
                     close: () => resolve()
                 }), { signal }).catch(() => undefined);
