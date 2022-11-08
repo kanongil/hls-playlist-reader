@@ -144,11 +144,21 @@ const _performFetch = async function (uri: URL, options: Omit<FetchOptions, 'tim
 
             completed = new Promise<void>((resolve, reject) => {
 
+                // Hook a specific signal that is always aborted, to workaround Safari memory leak
+
+                const ac = new AbortController();
+                const onSignalAbort = () => ac.abort(signal!.reason);
+                signal.addEventListener('abort', onSignalAbort);
+
                 monitor.pipeTo(new WritableStream({
                     write: advance ? (chunk) => advance(chunk.byteLength) : () => undefined,
                     abort: (reason) => reject(reason || new AbortError('Fetch aborted during stream download')),    // TODO: test!!
                     close: () => resolve()
-                }), { signal }).catch(() => undefined);
+                }), { signal: ac.signal }).catch(() => undefined).then(() => {
+
+                    signal.removeEventListener('abort', onSignalAbort);
+                    ac.abort();    // Late abort that ensures signal abort handler is triggered in order to free its scope
+                });
 
                 stream = orig;
             });
