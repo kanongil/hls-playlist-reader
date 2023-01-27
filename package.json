@@ -48,12 +48,11 @@
   "devDependencies": {
     "@hapi/code": "^9.0.1",
     "@hapi/eslint-plugin": "^6.0.0",
-    "@hapi/hapi": "^20.0.0",
-    "@hapi/inert": "^6.0.1",
-    "@types/hapi__hapi": "^20.0.12",
+    "@hapi/hapi": "^21.2.0",
+    "@hapi/inert": "^7.0.0",
     "@types/hapi__inert": "^5.2.3",
     "@types/mime-types": "^2.1.0",
-    "@types/mocha": "^9.1.1",
+    "@types/mocha": "^10.0.1",
     "@typescript-eslint/eslint-plugin": "^5.29.0",
     "@typescript-eslint/parser": "^5.29.0",
     "c8": "^7.12.0",
@@ -61,7 +60,7 @@
     "eslint": "^8.18.0",
     "joi": "^17.2.0",
     "mocha": "^10.0.0",
-    "typescript": "~4.8.2",
+    "typescript": "~4.9.4",
     "web-streams-polyfill": "^3.2.1"
   },
   "repository": {
