@@ -78,8 +78,8 @@ export type FetchResult<T extends object | unknown = unknown> = {
     meta: Meta;
     stream?: T;    // ReadableStream<Uint8Array> | Readable;
 
-    /** Resolved once the stream data has been fetched, or rejects with any transfer errors */
-    completed: Promise<void>;
+    /** Resolved with transferred bytes once the stream data has been fetched, or rejects with any transfer errors */
+    completed: Promise<number>;
 };
 
 /**

@@ -118,6 +118,8 @@ export const performFetch = function (uri: URL, { byterange, probe = false, time
 
     const promise = new Promise<FetchResult>((resolve, reject) => {
 
+        let transferred = 0;
+
         const doFinish = (err: Error | null, meta?: Meta) => {
 
             signal?.removeEventListener('abort', onSignalAbort);
@@ -135,8 +137,8 @@ export const performFetch = function (uri: URL, { byterange, probe = false, time
                 stream.resume();     // Ensure that we actually end
             }
 
-            const completed = streamFinished(stream, { signal });
-            completed.catch(() => undefined);
+            const completed = streamFinished(stream, { signal }).then(() => transferred);
+            completed.catch(() => transferred);
 
             process.nextTick(() => resolve({ meta, stream: probe ? undefined : stream, completed }));
         };
@@ -174,6 +176,12 @@ export const performFetch = function (uri: URL, { byterange, probe = false, time
         stream.on('meta', onMeta);
         stream.on('end', onFail);
         stream.on('error', onFail);
+
+        stream.on('data', (chunk: Buffer) => {
+
+            transferred += chunk.byteLength;
+        });
+        stream.pause();
     }) as any;
 
     promise.abort = (reason?: Error) => !stream.destroyed && stream.destroy(reason ?? new AbortError('Fetch was aborted'));
