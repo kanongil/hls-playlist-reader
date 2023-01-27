@@ -57,7 +57,7 @@ const _performFetch = async function (uri: URL, options: Omit<FetchOptions, 'tim
         headers.range = 'bytes=' + start + '-' + (end! >= 0 ? end : '');
     }
 
-    let completed: Promise<number> | undefined;
+    let completed: Promise<void> | undefined;
 
     const _token = tracker?.start(uri, !!blocking);
     const trackerMethod = function (method: 'advance' | 'finish') {
@@ -142,7 +142,7 @@ const _performFetch = async function (uri: URL, options: Omit<FetchOptions, 'tim
 
             // TODO: add a bytelimit?
 
-            completed = new Promise<number>((resolve, reject) => {
+            completed = new Promise<void>((resolve, reject) => {
 
                 // Hook a specific signal that is always aborted, to workaround Safari memory leak
 
@@ -150,15 +150,10 @@ const _performFetch = async function (uri: URL, options: Omit<FetchOptions, 'tim
                 const onSignalAbort = () => ac.abort(signal!.reason);
                 signal.addEventListener('abort', onSignalAbort);
 
-                let transferred = 0;
                 monitor.pipeTo(new WritableStream({
-                    write: (chunk) => {
-
-                        transferred += chunk.byteLength;
-                        advance?.(chunk.byteLength);
-                    },
+                    write: advance ? (chunk) => advance(chunk.byteLength) : () => undefined,
                     abort: (reason) => reject(reason || new AbortError('Fetch aborted during stream download')),    // TODO: test!!
-                    close: () => resolve(transferred)
+                    close: () => resolve()
                 }), { signal: ac.signal }).catch(() => undefined).then(() => {
 
                     signal.removeEventListener('abort', onSignalAbort);
@@ -169,7 +164,7 @@ const _performFetch = async function (uri: URL, options: Omit<FetchOptions, 'tim
             });
         }
         else {
-            completed = Promise.resolve(0);
+            completed = Promise.resolve();
         }
 
         return {
