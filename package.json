@@ -14,7 +14,7 @@
     "pretest": "concurrently 'npm run lint' 'tsc -b test'",
     "test": "c8 --check-coverage -- npm run mocha",
     "test-cov-html": "tsc -b test && c8 -r html mocha -R dot 'test/*.test.js'",
-    "test-with-polyfills": "npm run pretest && c8 --check-coverage -- npm run mocha -- -r ./test/hook-polyfills.js"
+    "test-with-polyfills": "npm run pretest && c8 --check-coverage -- npm run mocha -- -r ./test/hook-polyfills.cjs"
   },
   "keywords": [
     "streaming",
