@@ -283,6 +283,11 @@ export class HlsPlaylistFetcher {
         throw new Error('No fetcher');
     }
 
+    protected cancelFetch(fetch: FetchResult | undefined): void {
+
+        throw new Error('No fetcher');
+    }
+
     protected cleanup() {
 
         this.#watcher?.close();
@@ -309,14 +314,20 @@ export class HlsPlaylistFetcher {
 
         this.#fetch = this.performFetch(url, Object.assign({ timeout: 30 * 1000, signal: this.#ac.signal }, options));
         return this.#fetch
-            .then((result) => {
+            .then(async (result) => {
 
-                meta = result.meta;
-                this.validateIndexMeta(meta);
+                try {
+                    meta = result.meta;
+                    this.validateIndexMeta(meta);
 
-                return this.readFetchContent(result);
+                    const content = await this.readFetchContent(result);
+                    return { meta, content };
+                }
+                catch (err) {
+                    this.cancelFetch(result);
+                    throw err;
+                }
             })
-            .then((content) => ({ meta, content }))
             .finally(() => {
 
                 this.#fetch = undefined;

@@ -1,7 +1,7 @@
 import type { Boom } from '@hapi/boom';
 
 import { HlsPlaylistFetcher as BasePlaylistFetcher } from './fetcher.js';
-import { performFetch, readFetchData, FetchOptions, platformInit } from './helpers.node.js';
+import { performFetch, readFetchUtf8, FetchOptions, platformInit, cancelFetch } from './helpers.node.js';
 
 platformInit();
 
@@ -30,6 +30,11 @@ export class HlsPlaylistFetcher extends BasePlaylistFetcher {
 
     protected readFetchContent(fetch: Awaited<ReturnType<typeof performFetch>>): Promise<string> {
 
-        return readFetchData(fetch);
+        return readFetchUtf8(fetch);
+    }
+
+    protected cancelFetch(fetch: Awaited<ReturnType<typeof performFetch>> | undefined): void {
+
+        return cancelFetch(fetch);
     }
 }

@@ -186,8 +186,11 @@ const _performFetch = async function (uri: URL, options: Omit<FetchOptions, 'tim
     }
 };
 
-// TODO: rename to readFetchText??
-export const readFetchData = async function ({ stream }: FetchResult<ReadableStream<Uint8Array>>): Promise<string> {
+
+/**
+ * Read stream content from FetchResult as an UTF-8 string.
+ */
+export const readFetchUtf8 = async function ({ stream }: FetchResult<ReadableStream<Uint8Array>>): Promise<string> {
 
     if (!stream) {
         return '';       // No streams means content-length: 0
@@ -196,7 +199,7 @@ export const readFetchData = async function ({ stream }: FetchResult<ReadableStr
     const chunks = [];
 
     const reader = stream.getReader();
-    for (; ;) {
+    for (;;) {
         const { value, done } = await reader.read();
         if (done) {
             break;
@@ -215,6 +218,12 @@ export const readFetchData = async function ({ stream }: FetchResult<ReadableStr
     return new TextDecoder('utf-8').decode(merged);
 };
 
+
+/**
+ * Cancel delivery of stream from FetchResult.
+ *
+ * Must be called when not otherwise consumed.
+ */
 export const cancelFetch = function (fetch: FetchResult<ReadableStream<Uint8Array>> | undefined, reason?: Error): void {
 
     if (fetch?.stream) {

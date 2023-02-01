@@ -1,5 +1,5 @@
 import { HlsPlaylistFetcher as BasePlaylistFetcher } from './fetcher.js';
-import { performFetch, readFetchData, FetchOptions } from './helpers.web.js';
+import { performFetch, readFetchUtf8, FetchOptions, cancelFetch } from './helpers.web.js';
 
 export * from './fetcher.js';
 
@@ -23,6 +23,11 @@ export class HlsPlaylistFetcher extends BasePlaylistFetcher {
 
     protected readFetchContent(fetch: Awaited<ReturnType<typeof performFetch>>): Promise<string> {
 
-        return readFetchData(fetch);
+        return readFetchUtf8(fetch);
+    }
+
+    protected cancelFetch(fetch: Awaited<ReturnType<typeof performFetch>> | undefined): void {
+
+        return cancelFetch(fetch);
     }
 }

@@ -220,7 +220,10 @@ export const performFetch = function (uri: URL, { byterange, probe = false, time
 };
 
 
-export const readFetchData = async function ({ stream }: FetchResult<Readable>): Promise<string> {
+/**
+ * Read stream content from FetchResult as an UTF-8 string.
+ */
+export const readFetchUtf8 = async function ({ stream }: FetchResult<Readable>): Promise<string> {
 
     assert(stream, 'Must have a stream');
 
@@ -235,6 +238,11 @@ export const readFetchData = async function ({ stream }: FetchResult<Readable>):
 };
 
 
+/**
+ * Cancel delivery of stream from FetchResult.
+ *
+ * Must be called when not otherwise consumed.
+ */
 export const cancelFetch = function (fetch: FetchResult<Readable> | undefined, reason?: Error): void {
 
     if (fetch?.stream) {
