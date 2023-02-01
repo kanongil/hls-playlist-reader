@@ -102,7 +102,7 @@ export const performFetch = function (uri: URL, { byterange, probe = false, time
 
     let _token: unknown;
     try {
-        _token = tracker?.start(uri, !!blocking);
+        _token = tracker?.start(uri, { byterange, blocking: !!blocking });
     }
     catch (err) {
         return Object.assign(Promise.reject(err), {

@@ -95,7 +95,7 @@ export interface IDownloadTracker<Token = unknown> {
      *
      * @return An unique opaque Token that is passed to the advance() and finish() callbacks.
      */
-    start(url: URL, blocking?: boolean): Token;
+    start(url: URL, config: { byterange?: Byterange; blocking?: boolean }): Token;
 
     /**
      * Called whenever a chunk of payload data has been received.

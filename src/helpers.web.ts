@@ -59,7 +59,7 @@ const _performFetch = async function (uri: URL, options: Omit<FetchOptions, 'tim
 
     let completed: Promise<void> | undefined;
 
-    const _token = tracker?.start(uri, !!blocking);
+    const _token = tracker?.start(uri, { byterange, blocking: !!blocking });
     const trackerMethod = function (method: 'advance' | 'finish') {
 
         return tracker?.[method] ? (arg?: any) => {

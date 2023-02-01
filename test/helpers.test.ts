@@ -224,11 +224,12 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                     }
                 };
 
-                const state: { total?: number; started?: true; ended?: boolean; fail?: boolean } = {};
+                const state: { total?: number; started?: URL; config?: Parameters<IDownloadTracker['start']>[1]; ended?: boolean; fail?: boolean } = {};
                 const tracker: IDownloadTracker<typeof state> = {
-                    start(uri, blocking) {
+                    start(uri, config) {
 
-                        state.started = true;
+                        state.started = uri;
+                        state.config = config;
                         delete state.ended;
                         state.total = undefined;
 
@@ -257,19 +258,40 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
 
                 const url = new URL('500.m3u8', baseUrl);
                 const promise = performFetch(url, { tracker });
-                expect(state).to.equal({ total: undefined, started: true });
+                expect(state).to.include({ total: undefined, started: url });
                 const { stream } = await promise;
 
-                expect(state).to.equal({ total: 0, started: true });
+                expect(state).to.include({ total: 0, started: url });
 
                 let transferred = 0;
                 for await (const chunk of stream!) {
                     transferred += (chunk as Buffer).length;
-                    expect(state).to.equal({ total: transferred, started: true });
+                    expect(state).to.include({ total: transferred });
                 }
 
                 await wait(0);
-                expect(state).to.equal({ total: transferred, started: true, ended: true });
+                expect(state).to.include({ total: 416, ended: true });
+            });
+
+            it('for byterange requests', async () => {
+
+                const { state, tracker } = setupTracker();
+
+                const url = new URL('500.m3u8', baseUrl);
+                const promise = performFetch(url, { tracker, byterange: { offset: 20, length: 50 } });
+                expect(state).to.include({ total: undefined, started: url, config: { byterange: { offset: 20, length: 50 }, blocking: false } });
+                const { stream } = await promise;
+
+                expect(state).to.include({ total: 0 });
+
+                let transferred = 0;
+                for await (const chunk of stream!) {
+                    transferred += (chunk as Buffer).length;
+                    expect(state).to.include({ total: transferred });
+                }
+
+                await wait(0);
+                expect(state).to.include({ total: 50, ended: true });
             });
 
             it('with "probe" option', async () => {
@@ -278,12 +300,12 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
 
                 const url = new URL('500.m3u8', baseUrl);
                 const promise = performFetch(url, { tracker, probe: true });
-                expect(state).to.equal({ total: undefined, started: true });
+                expect(state).to.include({ total: undefined, started: url });
                 const { stream } = await promise;
                 expect(stream).to.not.exist();
 
                 await wait(0);
-                expect(state).to.equal({ total: undefined, started: true, ended: true });
+                expect(state).to.include({ total: undefined, ended: true });
             });
 
             it('on request errors', async () => {
@@ -294,21 +316,21 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                 {
                     const url = new URL('notFound.m3u8', baseUrl);
                     const promise = performFetch(url, { tracker });
-                    expect(state).to.equal({ total: undefined, started: true });
+                    expect(state).to.include({ total: undefined, started: url });
                     const err = await expect(promise).to.reject(Error);
                     const expectedStatus = err instanceof Boom ? { output: { statusCode: 404 } } : { httpStatus: 404 };
                     expect(err).to.part.include(expectedStatus);
 
-                    expect(state).to.equal({ total: undefined, started: true, ended: true });
+                    expect(state).to.include({ total: undefined, ended: true });
                 }
 
                 // hard error
                 if (label.includes('http')) {
                     const url = new URL('http://does.not.exist');
                     const promise = performFetch(url, { tracker });
-                    expect(state).to.equal({ total: undefined, started: true });
+                    expect(state).to.include({ total: undefined, started: url });
                     await expect(promise).to.reject(Error);
-                    expect(state).to.equal({ total: undefined, started: true, ended: true });
+                    expect(state).to.include({ total: undefined, ended: true });
                 }
             });
 
@@ -320,7 +342,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                 const fetch = performFetch(url, { tracker });
                 const { stream } = await fetch;
 
-                expect(state).to.equal({ total: 0, started: true });
+                expect(state).to.include({ total: 0, started: url });
                 fetch.abort();
 
                 let transferred = 0;
@@ -328,11 +350,11 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
 
                     for await (const chunk of stream!) {
                         transferred += (chunk as Buffer).length;
-                        expect(state).to.equal({ total: transferred, started: true, ended: true });
+                        expect(state).to.include({ total: transferred, ended: true });
                     }
                 })()).to.reject(Error);
                 expect(err.name).to.equal('AbortError');
-                expect(state).to.equal({ total: transferred, started: true, ended: true });
+                expect(state).to.include({ total: transferred, ended: true });
             });
 
             it('when it throws', async () => {
