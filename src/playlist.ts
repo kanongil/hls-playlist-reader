@@ -70,7 +70,7 @@ export class ParsedPlaylist {
 
             const next = {
                 msn: this._index.lastMsn(true),
-                part: lastSegment.parts!.length
+                part: lastSegment.parts?.length ?? 0
             };
 
             if (lastSegment.uri) {
