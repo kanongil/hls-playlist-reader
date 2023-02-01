@@ -5,6 +5,7 @@ import type { performFetch as performFetchWeb } from '../lib/helpers.web.js';
 
 import { Readable } from 'stream';
 
+import { Boom } from '@hapi/boom';
 import { expect } from '@hapi/code';
 import { ignore, wait } from '@hapi/hoek';
 
@@ -250,13 +251,6 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                 return { state, tracker };
             };
 
-            before(function () {
-
-                if (label !== 'web+http') {
-                    return this.skip();
-                }
-            });
-
             it('for regular requests', async () => {
 
                 const { state, tracker } = setupTracker();
@@ -301,7 +295,10 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                     const url = new URL('notFound.m3u8', baseUrl);
                     const promise = performFetch(url, { tracker });
                     expect(state).to.equal({ total: undefined, started: true });
-                    await expect(promise).to.reject(Error, 'Fetch failed');
+                    const err = await expect(promise).to.reject(Error);
+                    const expectedStatus = err instanceof Boom ? { output: { statusCode: 404 } } : { httpStatus: 404 };
+                    expect(err).to.part.include(expectedStatus);
+
                     expect(state).to.equal({ total: undefined, started: true, ended: true });
                 }
 
@@ -387,13 +384,17 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                     let transferred = 0;
                     for await (const chunk of stream!) {
                         transferred += (chunk as Buffer).length;
+                        if (transferred === 416) {
+                            state.fail = true;
+                        }
                     }
 
-                    state.fail = true;
-
                     expect(transferred).to.equal(416);
-                    expect(state.ended).to.be.undefined();
-                    await wait(0);
+                    if (state.ended !== false) {
+                        expect(state.ended).to.be.undefined();
+                        await wait(0);
+                    }
+
                     expect(state.ended).to.be.false();
                 }
 
@@ -409,7 +410,9 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                 {
                     const promise = performFetch(new URL('notFound.m3u8', baseUrl), { tracker });
                     state.fail = true;
-                    await expect(promise).to.reject(Error, 'Fetch failed');
+                    const err = await expect(promise).to.reject(Error);
+                    const expectedStatus = err instanceof Boom ? { output: { statusCode: 404 } } : { httpStatus: 404 };
+                    expect(err).to.part.include(expectedStatus);
                     expect(state.ended).to.be.false();
                 }
             });

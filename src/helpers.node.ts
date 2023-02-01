@@ -100,7 +100,33 @@ export const performFetch = function (uri: URL, { byterange, probe = false, time
 
     signal?.throwIfAborted();
 
-    assert(!tracker, 'Tracking is not yet supported');
+    let _token: unknown;
+    try {
+        _token = tracker?.start(uri, !!blocking);
+    }
+    catch (err) {
+        return Object.assign(Promise.reject(err), {
+            // eslint-disable-next-line @typescript-eslint/no-empty-function
+            abort() {}
+        });
+    }
+
+    const trackerMethod = function (method: 'advance' | 'finish') {
+
+        return tracker?.[method] ? (arg?: any) => {
+
+            try {
+                tracker?.[method]!(_token, arg);
+            }
+            catch (err) {
+                // Ignore this error and cancel tracking
+                tracker = undefined;
+            }
+        } : undefined;
+    };
+
+    const advance = trackerMethod('advance');
+    const finish = trackerMethod('finish');
 
     const streamOptions = Object.assign({
         probe,
@@ -136,7 +162,7 @@ export const performFetch = function (uri: URL, { byterange, probe = false, time
             }
 
             const completed = streamFinished(stream, { signal });
-            completed.catch(() => undefined);
+            finish ? completed.then(finish, finish) : completed.catch(() => undefined);
 
             process.nextTick(() => resolve({ meta, stream: probe ? undefined : stream, completed }));
         };
@@ -144,6 +170,10 @@ export const performFetch = function (uri: URL, { byterange, probe = false, time
         const onMeta = (meta: Meta) => {
 
             meta = Object.assign({}, meta);
+
+            if (!probe) {
+                advance?.(0);
+            }
 
             // Change filesize to stream length
 
@@ -158,6 +188,8 @@ export const performFetch = function (uri: URL, { byterange, probe = false, time
         };
 
         const onFail = (err?: Error) => {
+
+            finish?.();
 
             // Guard against broken uristream
 
@@ -174,6 +206,11 @@ export const performFetch = function (uri: URL, { byterange, probe = false, time
         stream.on('meta', onMeta);
         stream.on('end', onFail);
         stream.on('error', onFail);
+
+        if (advance) {
+            stream.on('data', (chunk) => advance(chunk.byteLength));
+            stream.pause();
+        }
     }) as any;
 
     promise.abort = (reason?: Error) => !stream.destroyed && stream.destroy(reason ?? new AbortError('Fetch was aborted'));
