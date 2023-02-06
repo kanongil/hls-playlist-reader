@@ -109,8 +109,8 @@ export class HlsPlaylistFetcher {
 
             if (this.from) {
                 url = new URL(url);
-                this._addMsnPart(url, this.from);
                 blocking = url.href;
+                this._addMsnPart(url, this.from);
             }
 
             this.#latest = this._updateIndex(this._fetchIndexFrom(url, { blocking }));
@@ -440,9 +440,9 @@ export class HlsPlaylistFetcher {
 
             // TODO: detect when playlist is behind server, and guess future part instead / CDN tunein
 
+            blocking = url.href;
             this._addMsnPart(url, head);
 
-            blocking = this.url.href;
             delayMs = 0;
         }
 
