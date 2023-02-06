@@ -378,8 +378,25 @@ export class HlsPlaylistFetcher {
 
         const rawIndex = M3U8Parse(content, { extensions: this.extensions });
 
+        // Strip added HLS query part from baseUrl
+
+        let resolvedUrl = meta.url;
+        const qIndex = resolvedUrl.indexOf('?');
+        if (qIndex !== -1) {
+            const hlsIndex = resolvedUrl.indexOf('_HLS_', qIndex + 1);
+            if (hlsIndex === qIndex + 1) {
+                resolvedUrl = resolvedUrl.slice(0, qIndex);
+            }
+            else if (hlsIndex !== -1) {
+                const hlsIndex2 = resolvedUrl.indexOf('&_HLS_', hlsIndex - 1);
+                if (hlsIndex2 !== -1) {
+                    resolvedUrl = resolvedUrl.slice(0, hlsIndex2);
+                }
+            }
+        }
+
         (this as any).updated = updatedAt;
-        (this as any).baseUrl = meta.url;
+        (this as any).baseUrl = resolvedUrl;
         // eslint-disable-next-line no-eq-null, eqeqeq
         (this as any).modified = meta.modified != null ? new Date(meta.modified) : undefined;
         this.#index = this.preprocessIndex(rawIndex);
