@@ -31,11 +31,15 @@
   "exports": {
     ".": "./lib/index.js",
     "./fetcher": {
+      "node": "./lib/fetcher.node.js",
       "default": "./lib/fetcher.web.js"
     },
+    "./fetcher.web": "./lib/fetcher.web.js",
     "./helpers": {
+      "node": "./lib/helpers.node.js",
       "default": "./lib/helpers.web.js"
     },
+    "./helpers.web": "./lib/helpers.web.js",
     "./playlist": "./lib/playlist.js"
   },
   "dependencies": {
