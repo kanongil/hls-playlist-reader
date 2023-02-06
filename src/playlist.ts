@@ -139,4 +139,20 @@ export class ParsedPlaylist {
 
         return hints;
     }
+
+    /** Program time of initial segment */
+    get startDate(): Date | undefined {
+
+        return this.index.getSegment(this.index.media_sequence, false)?.program_time ?? undefined;
+    }
+
+    /** Program time when final segment ends */
+    get endDate(): Date | undefined {
+
+        const lastSegment = this.index.getSegment(this.index.lastMsn(true), true);
+        if (lastSegment?.program_time) {
+            const segmentDuration = lastSegment.duration ?? lastSegment.parts?.reduce(((dur, part) => dur + part.get('duration', 'float')!), 0) ?? 0;
+            return new Date(+lastSegment.program_time + segmentDuration * 1000);
+        }
+    }
 }
