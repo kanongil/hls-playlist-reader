@@ -96,6 +96,13 @@ export class HlsPlaylistFetcher {
         return this.#playlist;
     }
 
+    /** Delta between computed end time of lastest playlist update, and the received time (in ms) */
+    get currentPlayoutDelay(): number | undefined {
+
+        const endDate = this.playlist?.endDate;
+        return endDate && this.updated ? +this.updated - +endDate : undefined;
+    }
+
     // Primary API methods
 
     /** Fetch the current index. */

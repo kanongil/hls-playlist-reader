@@ -171,6 +171,23 @@ for (const [label, { module, baseUrl, skip }] of testMatrix) {
                 fetcher.cancel();
             });
         });
+
+        describe('currentPlayoutDelay', () => {
+
+            it('works', async () => {
+
+                const fetcher = new HlsPlaylistFetcher(`${baseUrl}/500.m3u8`);
+                expect(fetcher.currentPlayoutDelay).to.be.undefined();
+
+                const start = Date.now();
+                const { playlist } = await fetcher.index();
+                expect(playlist?.startDate).to.equal(new Date('2000-01-07T06:03:05.000Z'));
+                expect(playlist?.endDate).to.equal(new Date('2000-01-07T06:03:12.760Z'));
+                const delay = start - +playlist!.endDate!;
+                expect(fetcher.currentPlayoutDelay).to.exist();
+                expect(fetcher.currentPlayoutDelay! - delay).be.min(0).and.below(200);
+            });
+        });
     });
 }
 
