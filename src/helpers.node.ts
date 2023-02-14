@@ -140,13 +140,21 @@ export const performFetch = function (uri: URL, { byterange, probe = false, time
 
     const stream = Uristream(uri.toString(), streamOptions);
 
-    const onSignalAbort = () => promise.abort(signal!.reason);
+    // Track both ready (has meta) and completed (stream fully fetched / errored)
 
-    const promise = new Promise<FetchResult>((resolve, reject) => {
+    const completed = streamFinished(stream);
+    finish ? completed.then(finish, finish) : completed.catch(() => undefined);
+
+    if (advance) {
+        stream.on('data', (chunk) => advance(chunk.byteLength));
+    }
+
+    stream.pause();
+
+    const ready = Object.assign(new Promise<FetchResult<Readable>>((resolve, reject) => {
 
         const doFinish = (err: Error | null, meta?: Meta) => {
 
-            signal?.removeEventListener('abort', onSignalAbort);
             stream.removeListener('meta', onMeta);
             stream.removeListener('end', onFail);
             stream.removeListener('error', onFail);
@@ -161,10 +169,7 @@ export const performFetch = function (uri: URL, { byterange, probe = false, time
                 stream.resume();     // Ensure that we actually end
             }
 
-            const completed = streamFinished(stream, { signal });
-            finish ? completed.then(finish, finish) : completed.catch(() => undefined);
-
-            process.nextTick(() => resolve({ meta, stream: probe ? undefined : stream, completed }));
+            resolve({ meta, stream: probe ? undefined : stream, completed });
         };
 
         const onMeta = (meta: Meta) => {
@@ -206,17 +211,25 @@ export const performFetch = function (uri: URL, { byterange, probe = false, time
         stream.on('meta', onMeta);
         stream.on('end', onFail);
         stream.on('error', onFail);
+    }), {
+        abort(reason?: Error) {
 
-        if (advance) {
-            stream.on('data', (chunk) => advance(chunk.byteLength));
-            stream.pause();
+            if (!stream.destroyed) {
+                stream.destroy(reason ?? new AbortError('Fetch was aborted'));
+            }
         }
-    }) as any;
+    });
 
-    promise.abort = (reason?: Error) => !stream.destroyed && stream.destroy(reason ?? new AbortError('Fetch was aborted'));
-    signal?.addEventListener('abort', onSignalAbort);
+    // Handle abort signal
 
-    return promise;
+    if (signal) {
+        const onSignalAbort = () => ready.abort(signal.reason);
+
+        signal.addEventListener('abort', onSignalAbort);
+        completed.finally(() => signal.removeEventListener('abort', onSignalAbort));
+    }
+
+    return ready;
 };
 
 
