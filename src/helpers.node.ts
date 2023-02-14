@@ -3,9 +3,8 @@ import type { Meta } from 'uristream/lib/uri-reader.js';
 import { EventEmitter } from 'events';
 import { watch } from 'fs';
 import { basename, dirname } from 'path';
-import { finished, Readable } from 'stream';
+import { Readable } from 'stream';
 import { fileURLToPath } from 'url';
-import { promisify } from 'util';
 
 import AgentKeepalive from 'agentkeepalive';
 import Uristream from 'uristream';
@@ -13,9 +12,6 @@ import Uristream from 'uristream';
 import { AbortablePromise, AbortError, assert, ChangeWatcher, Deferred, FetchOptions, FetchResult, IChangeWatcher, setAbortControllerImpl } from './helpers.js';
 
 export * from './helpers.js';
-
-
-const streamFinished = promisify(finished);
 
 
 /** Simplified AbortSignal for internal usage only */
@@ -142,7 +138,29 @@ export const performFetch = function (uri: URL, { byterange, probe = false, time
 
     // Track both ready (has meta) and completed (stream fully fetched / errored)
 
-    const completed = streamFinished(stream);
+    const completed = new Promise<void>((resolve, reject) => {
+
+        stream.on('error', reject);
+        stream.on('close', resolve);
+
+        if (!probe) {
+            // Intercept embedded push to immediately know when any underlying stream is completed.
+            // This way it doesn't need to be consumed for it to trigger.
+
+            const origPush = stream.push;
+            stream.push = (chunk: any, ...rest: any[]): boolean => {
+
+                if (chunk === null) {
+                    stream.removeListener('error', reject);
+                    stream.removeListener('close', resolve);
+                    process.nextTick(resolve);
+                }
+
+                return origPush.call(stream, chunk, ...rest);
+            };
+        }
+    });
+
     finish ? completed.then(finish, finish) : completed.catch(() => undefined);
 
     if (advance) {

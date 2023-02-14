@@ -105,6 +105,18 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
             await expect(promise).to.reject(/was aborted/);
         });
 
+        it('does not need stream to be consumed for "completed" to resolve', async () => {
+
+            const url = new URL('500.m3u8', baseUrl);
+            const fetch = performFetch(url);
+
+            const result = await fetch;
+
+            await result.completed;
+
+            cancelFetch(result);
+        });
+
         it('supports "probe" option', async () => {
 
             const url = new URL('500.m3u8', baseUrl);
@@ -218,13 +230,15 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
 
                 const maybeFail = (part: string) => {
 
-                    if (state.fail) {
+                    if (state.fail &&
+                        (typeof state.fail === 'boolean' || state.fail === part)) {
+
                         delete state.fail;
                         throw new Error(`${part} failed`);
                     }
                 };
 
-                const state: { total?: number; started?: URL; config?: Parameters<IDownloadTracker['start']>[1]; ended?: boolean; fail?: boolean } = {};
+                const state: { total?: number; started?: URL; config?: Parameters<IDownloadTracker['start']>[1]; ended?: boolean; fail?: boolean | string } = {};
                 const tracker: IDownloadTracker<typeof state> = {
                     start(uri, config) {
 
@@ -403,12 +417,11 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                 {
                     const { stream } = await performFetch(url, { tracker });
 
+                    state.fail = 'finish';
+
                     let transferred = 0;
                     for await (const chunk of stream!) {
                         transferred += (chunk as Buffer).length;
-                        if (transferred === 416) {
-                            state.fail = true;
-                        }
                     }
 
                     expect(transferred).to.equal(416);
@@ -423,7 +436,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                 // Fail in finish() on request error
                 if (label.includes('http')) {
                     const promise = performFetch(new URL('http://does.not.exist'), { tracker });
-                    state.fail = true;
+                    state.fail = 'finish';
                     await expect(promise).to.reject(Error);
                     expect(state.ended).to.be.false();
                 }
@@ -431,7 +444,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                 // Fail in finish() on 404
                 {
                     const promise = performFetch(new URL('notFound.m3u8', baseUrl), { tracker });
-                    state.fail = true;
+                    state.fail = 'finish';
                     const err = await expect(promise).to.reject(Error);
                     const expectedStatus = err instanceof Boom ? { output: { statusCode: 404 } } : { httpStatus: 404 };
                     expect(err).to.part.include(expectedStatus);
