@@ -78,7 +78,7 @@ class WebFetcher implements IContentFetcher<TFetcherStream> {
             throw TypeError(`Unsuported protocol: ${uri.protocol}`);
         }
 
-        const ac = new AbortController();       // Don't use ponyfill, since it is passed to native fetch()
+        const ac = new AbortController();
 
         const promise = Object.assign(this.#performFetch(uri, { ...options, signal: ac.signal }), {
             abort: (reason?: Error) => ac.abort(reason ?? new AbortError('Fetch was aborted'))

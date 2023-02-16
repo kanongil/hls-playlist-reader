@@ -12,8 +12,6 @@ import { HlsPlaylistFetcher } from '../src/fetcher.js';
 export interface UnprotectedPlaylistFetcher {
     _intervals: (number | undefined)[];
     getUpdateInterval(...args: any[]): ReturnType<HlsPlaylistFetcher['getUpdateInterval']>;
-    performFetch(...args: any[]): unknown;
-    readFetchContent(...args: any[]): unknown;
 }
 
 export const provisionServer = async () => {
