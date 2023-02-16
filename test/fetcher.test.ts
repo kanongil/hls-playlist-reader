@@ -10,7 +10,7 @@ import { provisionServer, hasFetch } from './_shared.js';
 const server = await provisionServer();
 await server.start();
 
-type StreamTypes = typeof ContentFetcherNode['streamType'] | typeof ContentFetcherWeb['streamType'];
+type StreamTypes = typeof ContentFetcherNode['StreamProto'] | typeof ContentFetcherWeb['StreamProto'];
 
 const testMatrix = new Map([
     ['node+file', { module: '../lib/fetcher.node.js', helpers: '../lib/helpers.node.js', baseUrl: new URL('fixtures', import.meta.url).href }],

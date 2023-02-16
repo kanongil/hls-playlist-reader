@@ -1,5 +1,5 @@
 import type { Meta } from 'uristream/lib/uri-reader.js';
-import type { Readable } from 'stream';
+import { Readable } from 'stream';
 
 import { watch } from 'fs';
 import { basename, dirname } from 'path';
@@ -88,7 +88,7 @@ class NodeFetchResult implements IFetchResult<TFetcherStream> {
 
 class NodeFetcher implements IContentFetcher<TFetcherStream> {
 
-    static streamType: TFetcherStream;
+    static StreamProto: TFetcherStream = Readable.prototype;
 
     readonly type = 'node';
 

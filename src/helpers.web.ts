@@ -4,14 +4,15 @@ import { AbortablePromise, AbortError, assert, FetchOptions, IFetchResult, ICont
 
 export * from './helpers.js';
 
+export type TFetcherStream = ReadableStream<Uint8Array>;
 
-class WebFetchResult implements IFetchResult<ReadableStream<Uint8Array>> {
+class WebFetchResult implements IFetchResult<TFetcherStream> {
 
     readonly meta: IFetchResult['meta'];
     readonly completed: IFetchResult['completed'];
-    stream?: ReadableStream<Uint8Array>;
+    stream?: TFetcherStream;
 
-    constructor(meta: IFetchResult['meta'], stream: ReadableStream<Uint8Array> | undefined, completed: IFetchResult['completed']) {
+    constructor(meta: IFetchResult['meta'], stream: TFetcherStream | undefined, completed: IFetchResult['completed']) {
 
         this.meta = meta;
         this.stream = stream;
@@ -55,11 +56,9 @@ class WebFetchResult implements IFetchResult<ReadableStream<Uint8Array>> {
     }
 }
 
-export type TFetcherStream = ReadableStream<Uint8Array>;
-
 class WebFetcher implements IContentFetcher<TFetcherStream> {
 
-    static streamType: TFetcherStream;
+    static StreamProto: TFetcherStream = ReadableStream.prototype;
 
     readonly type = 'web';
 

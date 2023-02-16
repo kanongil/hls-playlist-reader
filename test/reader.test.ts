@@ -39,7 +39,7 @@ const expectCause = (err: any, match: string | RegExp): void => {
 };
 
 
-type StreamTypes = typeof ContentFetcherNode['streamType'] | typeof ContentFetcherWeb['streamType'];
+type StreamTypes = typeof ContentFetcherNode['StreamProto'] | typeof ContentFetcherWeb['StreamProto'];
 
 const testMatrix = new Map(Object.entries({
     'node': { helpers: '../lib/helpers.node.js' },

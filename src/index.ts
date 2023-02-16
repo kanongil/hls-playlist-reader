@@ -9,7 +9,7 @@ const ContentFetcher = (isNodeRuntime ? await import('./helpers.node.js') : awai
 
 const createReader = function (uri: URL | string, options?: HlsPlaylistFetcherOptions & HlsPlaylistReaderOptions): HlsPlaylistReadable {
 
-    return new HlsPlaylistReadable(new HlsPlaylistFetcher<typeof ContentFetcher['streamType']>(uri, new ContentFetcher(), options), options);
+    return new HlsPlaylistReadable(new HlsPlaylistFetcher<typeof ContentFetcher['StreamProto']>(uri, new ContentFetcher(), options), options);
 };
 
 export { createReader, HlsPlaylistReadable };

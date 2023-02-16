@@ -46,6 +46,11 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
             fetcher = new ContentFetcher();
         });
 
+        it('StreamProto is correct', () => {
+
+            expect(ContentFetcher.StreamProto).to.equal(Class.prototype);
+        });
+
         it('has the correct type', () => {
 
             expect(fetcher.type).to.equal(label.split('+')[0]);
