@@ -1,7 +1,6 @@
 import type { Meta } from 'uristream/lib/uri-reader.js';
 import type { Readable } from 'stream';
 
-import { EventEmitter } from 'events';
 import { watch } from 'fs';
 import { basename, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -9,53 +8,9 @@ import { fileURLToPath } from 'url';
 import AgentKeepalive from 'agentkeepalive';
 import Uristream from 'uristream';
 
-import { AbortablePromise, AbortError, assert, ChangeWatcher, Deferred, FetchOptions, IFetchResult, IChangeWatcher, IContentFetcher, setAbortControllerImpl } from './helpers.js';
+import { AbortablePromise, AbortError, assert, ChangeWatcher, Deferred, FetchOptions, IFetchResult, IChangeWatcher, IContentFetcher } from './helpers.js';
 
 export * from './helpers.js';
-
-
-/** Simplified AbortSignal for internal usage only */
-class AbortSignalInternal extends EventEmitter {
-    aborted = false;
-    reason?: Error;
-
-    addEventListener(event: 'abort', listener: () => void) {
-
-        super.addListener(event, listener);
-    }
-
-    removeEventListener(event: 'abort', listener: () => void) {
-
-        super.removeListener(event, listener);
-    }
-
-    throwIfAborted() {
-
-        if (this.aborted) {
-            throw this.reason!;
-        }
-    }
-}
-
-/** Simplified AbortController for internal usage only */
-class AbortControllerInternal {
-    signal = new AbortSignalInternal();
-    abort(reason?: Error) {
-
-        Object.assign(this.signal, { aborted: true, reason });
-        this.signal.emit('abort');
-    }
-}
-
-/** Ponyfill AbortController when needed */
-export const platformInit = function () {
-
-    const useInternalAbort = true; (!globalThis.AbortController || !globalThis.AbortSignal || !globalThis.AbortSignal.prototype.throwIfAborted) as boolean;
-
-    if (useInternalAbort) {
-        setAbortControllerImpl(AbortControllerInternal as any as typeof AbortController);
-    }
-};
 
 
 const internals = {

@@ -9,7 +9,7 @@ import { Boom } from '@hapi/boom';
 import { expect } from '@hapi/code';
 import { ignore, wait } from '@hapi/hoek';
 
-import { AbortController, Deferred, IDownloadTracker, wait as waitI } from '../lib/helpers.js';
+import { Deferred, IDownloadTracker, wait as waitI } from '../lib/helpers.js';
 
 import { hasFetch, provisionServer, usesWebstreamPolyfill } from './_shared.js';
 

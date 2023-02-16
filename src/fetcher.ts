@@ -1,6 +1,6 @@
 import M3U8Parse, { MediaPlaylist, ParserError, M3U8Playlist } from 'm3u8parse';
 
-import { AbortController, AbortError, AbortablePromise, assert, ChangeWatcher, FetchOptions, IFetchResult, IChangeWatcher, wait, IContentFetcher } from './helpers.js';
+import { AbortError, AbortablePromise, assert, ChangeWatcher, FetchOptions, IFetchResult, IChangeWatcher, wait, IContentFetcher } from './helpers.js';
 import { ParsedPlaylist } from './playlist.js';
 
 

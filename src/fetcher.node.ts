@@ -1,9 +1,6 @@
 import type { Boom } from '@hapi/boom';
 
 import { HlsPlaylistFetcher as BasePlaylistFetcher } from './fetcher.js';
-import { platformInit } from './helpers.node.js';
-
-platformInit();
 
 export * from './fetcher.js';
 

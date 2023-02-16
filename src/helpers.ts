@@ -23,7 +23,7 @@ export const arrayAt = Array.prototype.at ? function <T = unknown>(array: readon
 /* $lab:coverage:on$ */ /* c8 ignore stop */
 
 
-// Enable DOMException on old node.js
+// Enable DOMException on pre-v17 node.js
 
 /* $lab:coverage:off$ */ /* c8 ignore start */
 let DOMException = globalThis.DOMException;
@@ -60,12 +60,6 @@ export class TimeoutError extends DOMException {
     }
 }
 
-export let AbortController = globalThis.AbortController;     // Allow a ponyfill to replace the implementation
-
-export const setAbortControllerImpl = function (impl: typeof AbortController) {
-
-    AbortController = impl;
-};
 
 export type AbortablePromise<T> = Promise<T> & { abort: (reason?: Error) => void };
 
