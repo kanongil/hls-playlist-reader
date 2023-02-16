@@ -74,14 +74,6 @@ export type Byterange = {
     length?: number;
 };
 
-export type FetchResult<T extends object | unknown = unknown> = {
-    meta: Meta;
-    stream?: T;    // ReadableStream<Uint8Array> | Readable;
-
-    /** Resolved once the stream data has been fetched, or rejects with any transfer errors */
-    completed: Promise<void>;
-};
-
 /**
  * Interface that can be implemented to track a fetch.
  */
@@ -131,6 +123,44 @@ export type FetchOptions = {
     signal?: AbortSignal;
     tracker?: IDownloadTracker;
 };
+
+export interface IFetchResult<T extends object | unknown = unknown> {
+    readonly meta: Meta;
+
+    /**
+     * Resolved once the stream data has been fetched, or rejects (without requiring a listener) with any transfer errors.
+     */
+    readonly completed: Promise<void>;
+
+    /**
+     * Content stream of type T. Must be fully consumed or cancelled / aborted.
+     */
+    readonly stream?: T;    // ReadableStream<Uint8Array> | Readable;
+
+    /**
+     * Cancel delivery of stream from FetchResult.
+     *
+     * Must be called when stream is not otherwise consumed.
+     */
+    cancel(reason?: Error): void;
+
+    /**
+     * Fully consume content stream from FetchResult as an UTF-8 string.
+     */
+    consumeUtf8(): Promise<string>;
+}
+
+export type TFetcherStream = unknown;
+
+export interface IContentFetcher<TContentStream extends object> {
+
+    readonly type: 'node' | 'web';
+
+    /**
+     * Fetch metadata for uri and prepare a content stream for reading.
+     */
+    perform(uri: URL, options: FetchOptions): AbortablePromise<IFetchResult<TContentStream>>;
+}
 
 
 // eslint-disable-next-line func-style

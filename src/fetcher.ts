@@ -1,6 +1,6 @@
 import M3U8Parse, { MediaPlaylist, ParserError, M3U8Playlist } from 'm3u8parse';
 
-import { AbortController, AbortError, AbortablePromise, assert, ChangeWatcher, FetchOptions, FetchResult, IChangeWatcher, wait } from './helpers.js';
+import { AbortController, AbortError, AbortablePromise, assert, ChangeWatcher, FetchOptions, IFetchResult, IChangeWatcher, wait, IContentFetcher } from './helpers.js';
 import { ParsedPlaylist } from './playlist.js';
 
 
@@ -40,7 +40,7 @@ export interface PlaylistObject<T extends M3U8Playlist = M3U8Playlist> {
     meta: Readonly<HlsIndexMeta>;
 }
 
-export class HlsPlaylistFetcher {
+export class HlsPlaylistFetcher<TContentStream extends object = any> {
 
     static readonly indexMimeTypes = new Set([
         'application/vnd.apple.mpegurl',
@@ -66,10 +66,12 @@ export class HlsPlaylistFetcher {
     readonly updated?: Date;
     readonly updates = 0;
 
+    readonly contentFetcher: IContentFetcher<TContentStream>;
+
     #rejected = 0;
     #index?: M3U8Playlist;
     #playlist?: ParsedPlaylist;
-    #fetch?: AbortablePromise<FetchResult>;
+    #fetch?: AbortablePromise<IFetchResult<TContentStream>>;
     #watcher?: IChangeWatcher;
     #stallTimer?: NodeJS.Timeout;
     #latest?: Promise<PlaylistObject>;
@@ -77,10 +79,15 @@ export class HlsPlaylistFetcher {
     //#waiting?: Deferred<void>;
     #ac = new AbortController();
 
-    constructor(uri: URL | string, options: HlsPlaylistFetcherOptions = {}) {
+    constructor(uri: URL | string, fetcher: IContentFetcher<TContentStream>, options: HlsPlaylistFetcherOptions = {}) {
 
         this.url = new URL(uri as any);
         this.baseUrl = this.url.href;
+        this.contentFetcher = fetcher;
+
+        if (typeof fetcher?.type !== 'string') {
+            throw new TypeError('Invalid or missing "fetcher" argument');
+        }
 
         this.lowLatency = !!options.lowLatency;
         this.extensions = options.extensions;
@@ -280,21 +287,6 @@ export class HlsPlaylistFetcher {
         return updateInterval;
     }
 
-    protected performFetch(url: URL, options?: FetchOptions): AbortablePromise<FetchResult> {
-
-        throw new Error('No fetcher');
-    }
-
-    protected readFetchContent(fetch: FetchResult): Promise<string> {
-
-        throw new Error('No fetcher');
-    }
-
-    protected cancelFetch(fetch: FetchResult | undefined): void {
-
-        throw new Error('No fetcher');
-    }
-
     protected cleanup() {
 
         this.#watcher?.close();
@@ -319,7 +311,7 @@ export class HlsPlaylistFetcher {
         let meta: FetchUrlResult['meta'];
         assert(!this.#fetch, 'Already fetching');
 
-        this.#fetch = this.performFetch(url, Object.assign({ timeout: 30 * 1000, signal: this.#ac.signal }, options));
+        this.#fetch = this.contentFetcher.perform(url, Object.assign({ timeout: 30 * 1000, signal: this.#ac.signal }, options));
         return this.#fetch
             .then(async (result) => {
 
@@ -327,11 +319,11 @@ export class HlsPlaylistFetcher {
                     meta = result.meta;
                     this.validateIndexMeta(meta);
 
-                    const content = await this.readFetchContent(result);
+                    const content = await result.consumeUtf8();
                     return { meta, content };
                 }
                 catch (err) {
-                    this.cancelFetch(result);
+                    result.cancel();
                     throw err;
                 }
             })

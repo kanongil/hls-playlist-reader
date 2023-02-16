@@ -1,6 +1,10 @@
 
 
 /* eslint-disable @typescript-eslint/no-loop-func */
+
+import type { ContentFetcher as ContentFetcherNode } from '../lib/helpers.node.js';
+import type { ContentFetcher as ContentFetcherWeb } from '../lib/helpers.web.js';
+
 import Fs from 'fs';
 
 import Boom from '@hapi/boom';
@@ -10,7 +14,7 @@ import { M3U8Playlist, MainPlaylist, MediaPlaylist, ParserError } from 'm3u8pars
 
 import * as Shared from './_shared.js';
 import { createReader, HlsPlaylistReadable, HlsPlaylistReaderOptions } from '../lib/index.js';
-import { HlsPlaylistFetcher as HlsPlaylistFetcherBase, HlsPlaylistFetcherOptions, PlaylistObject } from '../lib/fetcher.js';
+import { HlsPlaylistFetcher, HlsPlaylistFetcherOptions, PlaylistObject } from '../lib/fetcher.node.js';
 
 
 const expectCause = (err: any, match: string | RegExp): void => {
@@ -35,15 +39,18 @@ const expectCause = (err: any, match: string | RegExp): void => {
 };
 
 
+type StreamTypes = typeof ContentFetcherNode['streamType'] | typeof ContentFetcherWeb['streamType'];
+
 const testMatrix = new Map(Object.entries({
-    'node': { module: '../lib/fetcher.node.js' },
-    'web': { module: '../lib/fetcher.web.js', skip: !Shared.hasFetch }
+    'node': { helpers: '../lib/helpers.node.js' },
+    'web': { helpers: '../lib/helpers.web.js', skip: !Shared.hasFetch }
 }));
 
-for (const [label, { module, skip }] of testMatrix) {
+
+for (const [label, { helpers, skip }] of testMatrix) {
     describe(`HlsPlaylistReadable (${label})`, () => {
 
-        let HlsPlaylistFetcher: typeof HlsPlaylistFetcherBase;
+        let ContentFetcher: typeof ContentFetcherNode | typeof ContentFetcherWeb;
 
         before(async function () {
 
@@ -51,12 +58,12 @@ for (const [label, { module, skip }] of testMatrix) {
                 return this.skip();
             }
 
-            HlsPlaylistFetcher = (await import(module)).HlsPlaylistFetcher;
+            ContentFetcher = (await import(helpers)).ContentFetcher;
         });
 
         const readPlaylists = function<T extends M3U8Playlist = MediaPlaylist> (url: string, options?: HlsPlaylistFetcherOptions & HlsPlaylistReaderOptions): Promise<PlaylistObject<T>[]> {
 
-            const fetcher = new HlsPlaylistFetcher(url, options);
+            const fetcher = new HlsPlaylistFetcher<StreamTypes>(url, new ContentFetcher(), options);
             const r = new HlsPlaylistReadable(fetcher, options);
             const reader = r.getReader();
             const indexes: PlaylistObject<T>[] = [];
@@ -93,7 +100,7 @@ for (const [label, { module, skip }] of testMatrix) {
 
             it('creates a valid object', async () => {
 
-                const r = new HlsPlaylistReadable(new HlsPlaylistFetcher(server.info.uri + '/simple/500.m3u8', {
+                const r = new HlsPlaylistReadable(new HlsPlaylistFetcher<StreamTypes>(server.info.uri + '/simple/500.m3u8', new ContentFetcher(), {
                     extensions: undefined
                 }), {
                     maxStallTime: undefined
@@ -213,7 +220,7 @@ for (const [label, { module, skip }] of testMatrix) {
                     '#EXT-MY-SEGMENT-OK': true
                 };
 
-                const r = new HlsPlaylistReadable(new HlsPlaylistFetcher(`${server.info.uri}/simple/500.m3u8`, { extensions }));
+                const r = new HlsPlaylistReadable(new HlsPlaylistFetcher<StreamTypes>(`${server.info.uri}/simple/500.m3u8`, new ContentFetcher(), { extensions }));
                 const playlists = [];
 
                 for await (const obj of r) {
@@ -246,7 +253,7 @@ for (const [label, { module, skip }] of testMatrix) {
             } {
 
                 const clonedOptions = { ...readerOptions };
-                const fetcher = new HlsPlaylistFetcher(`${liveServer.info.uri}/live/live.m3u8`, clonedOptions);
+                const fetcher = new HlsPlaylistFetcher<StreamTypes>(`${liveServer.info.uri}/live/live.m3u8`, new ContentFetcher(), clonedOptions);
                 const reader = new HlsPlaylistReadable(fetcher, clonedOptions);
                 const fetch = reader.fetch as any as Shared.UnprotectedPlaylistFetcher;
                 const superFn = fetch.getUpdateInterval;
@@ -297,7 +304,7 @@ for (const [label, { module, skip }] of testMatrix) {
 
                 const state = serverState.state = { firstMsn: 0, segmentCount: 10, targetDuration: 10 };
                 const buf = Buffer.from(Shared.genIndex(state).toString(), 'utf-8');
-                const reader = new HlsPlaylistReadable(new HlsPlaylistFetcher('data:application/vnd.apple.mpegurl;base64,' + buf.toString('base64')));
+                const reader = new HlsPlaylistReadable(new HlsPlaylistFetcher<StreamTypes>('data:application/vnd.apple.mpegurl;base64,' + buf.toString('base64'), new ContentFetcher()));
 
                 const playlists: PlaylistObject[] = [];
                 await expect((async () => {

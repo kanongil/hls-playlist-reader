@@ -5,6 +5,7 @@ import Url from 'url';
 
 import { expect } from '@hapi/code';
 import { HlsPlaylistFetcher as HlsPlaylistFetcherNode } from '../lib/fetcher.node.js';
+import { ContentFetcher as ContentFetcherNode } from '../lib/helpers.node.js';
 
 import { ServerState, genIndex } from './_shared.js';
 import { wait } from '@hapi/hoek';
@@ -22,7 +23,7 @@ describe('HlsPlaylistFetcher (node+file)', () => {
             const indexUrl = new URL('index.m3u8', Url.pathToFileURL(tmpDir + Path.sep));
             await Fs.promises.writeFile(indexUrl, genIndex(state).toString(), 'utf-8');
 
-            const fetcher = new HlsPlaylistFetcherNode(indexUrl.href);
+            const fetcher = new HlsPlaylistFetcherNode(indexUrl.href, new ContentFetcherNode());
             const playlists = [];
 
             const start = await fetcher.index();

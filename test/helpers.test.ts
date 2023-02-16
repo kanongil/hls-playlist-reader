@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-loop-func */
 
-import type { performFetch as performFetchNode } from '../lib/helpers.node.js';
-import type { performFetch as performFetchWeb } from '../lib/helpers.web.js';
+import type { ContentFetcher as ContentFetcherNode } from '../lib/helpers.node.js';
+import type { ContentFetcher as ContentFetcherWeb } from '../lib/helpers.web.js';
 
 import { Readable } from 'stream';
 
@@ -9,7 +9,7 @@ import { Boom } from '@hapi/boom';
 import { expect } from '@hapi/code';
 import { ignore, wait } from '@hapi/hoek';
 
-import { AbortController, Deferred, FetchResult, IDownloadTracker, wait as waitI } from '../lib/helpers.js';
+import { AbortController, Deferred, IDownloadTracker, wait as waitI } from '../lib/helpers.js';
 
 import { hasFetch, provisionServer, usesWebstreamPolyfill } from './_shared.js';
 
@@ -31,10 +31,10 @@ const testMatrix = new Map(Object.entries({
 
 for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
 
-    describe(`performFetch (${label})`, () => {
+    describe(`ContentFetcher (${label})`, () => {
 
-        let performFetch: typeof performFetchNode | typeof performFetchWeb;
-        let cancelFetch: (fetch: FetchResult<ReadableStream<Uint8Array> | Readable>, reason?: Error) => void;
+        let ContentFetcher: typeof ContentFetcherNode | typeof ContentFetcherWeb;
+        let fetcher: InstanceType<typeof ContentFetcher>;
 
         before(async function () {
 
@@ -42,17 +42,22 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                 return this.skip();
             }
 
-            performFetch = (await import(module)).performFetch;
-            cancelFetch = (await import(module)).cancelFetch;
+            ContentFetcher = (await import(module)).ContentFetcher;
+            fetcher = new ContentFetcher();
+        });
+
+        it('has the correct type', () => {
+
+            expect(fetcher.type).to.equal(label.split('+')[0]);
         });
 
         it('fetches a file with metadata and stream', async () => {
 
             const url = new URL('500.m3u8', baseUrl);
-            const fetch = await performFetch(url);
+            const fetch = await fetcher.perform(url);
             expect(fetch.stream).to.be.instanceof(Class);
 
-            cancelFetch(fetch);
+            fetch.cancel();
 
             expect(fetch.meta).to.contain({
                 mime: 'application/vnd.apple.mpegurl',
@@ -65,7 +70,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
         it('stream contains file data', async () => {
 
             const url = new URL('500.m3u8', baseUrl);
-            const { stream, meta } = await performFetch(url);
+            const { stream, meta } = await fetcher.perform(url);
 
             let transferred = 0;
             for await (const chunk of stream!) {
@@ -78,7 +83,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
         it('can be aborted early', async () => {
 
             const url = new URL('500.m3u8', baseUrl);
-            const fetch = performFetch(url);
+            const fetch = fetcher.perform(url);
 
             fetch.abort();
             fetch.abort();   // Do another to verify it is handled
@@ -89,7 +94,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
         it('can be aborted late', async () => {
 
             const url = new URL('500.m3u8', baseUrl);
-            const fetch = performFetch(url);
+            const fetch = fetcher.perform(url);
 
             const { stream } = await fetch;
 
@@ -108,19 +113,19 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
         it('does not need stream to be consumed for "completed" to resolve', async () => {
 
             const url = new URL('500.m3u8', baseUrl);
-            const fetch = performFetch(url);
+            const fetch = fetcher.perform(url);
 
             const result = await fetch;
 
             await result.completed;
 
-            cancelFetch(result);
+            result.cancel();
         });
 
         it('supports "probe" option', async () => {
 
             const url = new URL('500.m3u8', baseUrl);
-            const { stream, meta } = await performFetch(url, { probe: true });
+            const { stream, meta } = await fetcher.perform(url, { probe: true });
 
             expect(stream).to.not.exist();
             expect(meta).to.contain({
@@ -134,7 +139,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
         it('supports late abort with "probe" option', async () => {
 
             const url = new URL('500.m3u8', baseUrl);
-            const fetch = performFetch(url, { probe: true });
+            const fetch = fetcher.perform(url, { probe: true });
 
             await fetch;
 
@@ -144,8 +149,8 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
         it('supports "byterange" option', async () => {
 
             const url = new URL('500.m3u8', baseUrl);
-            const fetch = await performFetch(url, { byterange: { offset: 10, length: 2000 } });
-            cancelFetch(fetch);
+            const fetch = await fetcher.perform(url, { byterange: { offset: 10, length: 2000 } });
+            fetch.cancel();
 
             expect(fetch.meta).to.contain({
                 mime: 'application/vnd.apple.mpegurl',
@@ -158,8 +163,8 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
         it('supports "byterange" option without "length"', async () => {
 
             const url = new URL('500.m3u8', baseUrl);
-            const fetch = await performFetch(url, { byterange: { offset: 400 } });
-            cancelFetch(fetch);
+            const fetch = await fetcher.perform(url, { byterange: { offset: 400 } });
+            fetch.cancel();
 
             expect(fetch.meta).to.contain({
                 mime: 'application/vnd.apple.mpegurl',
@@ -176,7 +181,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
             }
 
             const url = new URL('../slow/500.m3u8', baseUrl);
-            const err = await expect(performFetch(url, { timeout: 1, probe: true })).to.reject(Error);
+            const err = await expect(fetcher.perform(url, { timeout: 1, probe: true })).to.reject(Error);
             expect(err.name).to.equal('TimeoutError');
         });
 
@@ -193,7 +198,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                 for (let i = 0; i < 5; ++i) {
                     fetches.push((async () => {
 
-                        const { stream } = await performFetch(new URL('https://www.google.com'), { blocking });
+                        const { stream } = await fetcher.perform(new URL('https://www.google.com'), { blocking });
 
                         const ready = process.hrtime.bigint();
                         // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -204,7 +209,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                     })());
                 }
 
-                await performFetch(new URL('https://www.google.com'), { probe: true });
+                await fetcher.perform(new URL('https://www.google.com'), { probe: true });
                 const independentReady = process.hrtime.bigint();
 
                 expect(fetches).to.have.length(5);
@@ -271,7 +276,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                 const { state, tracker } = setupTracker();
 
                 const url = new URL('500.m3u8', baseUrl);
-                const promise = performFetch(url, { tracker });
+                const promise = fetcher.perform(url, { tracker });
                 expect(state).to.include({ total: undefined, started: url });
                 const { stream } = await promise;
 
@@ -292,7 +297,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                 const { state, tracker } = setupTracker();
 
                 const url = new URL('500.m3u8', baseUrl);
-                const promise = performFetch(url, { tracker, byterange: { offset: 20, length: 50 } });
+                const promise = fetcher.perform(url, { tracker, byterange: { offset: 20, length: 50 } });
                 expect(state).to.include({ total: undefined, started: url, config: { byterange: { offset: 20, length: 50 }, blocking: false } });
                 const { stream } = await promise;
 
@@ -313,7 +318,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                 const { state, tracker } = setupTracker();
 
                 const url = new URL('500.m3u8', baseUrl);
-                const promise = performFetch(url, { tracker, probe: true });
+                const promise = fetcher.perform(url, { tracker, probe: true });
                 expect(state).to.include({ total: undefined, started: url });
                 const { stream } = await promise;
                 expect(stream).to.not.exist();
@@ -329,7 +334,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                 // 404
                 {
                     const url = new URL('notFound.m3u8', baseUrl);
-                    const promise = performFetch(url, { tracker });
+                    const promise = fetcher.perform(url, { tracker });
                     expect(state).to.include({ total: undefined, started: url });
                     const err = await expect(promise).to.reject(Error);
                     const expectedStatus = err instanceof Boom ? { output: { statusCode: 404 } } : { httpStatus: 404 };
@@ -341,7 +346,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                 // hard error
                 if (label.includes('http')) {
                     const url = new URL('http://does.not.exist');
-                    const promise = performFetch(url, { tracker });
+                    const promise = fetcher.perform(url, { tracker });
                     expect(state).to.include({ total: undefined, started: url });
                     await expect(promise).to.reject(Error);
                     expect(state).to.include({ total: undefined, ended: true });
@@ -353,7 +358,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                 const { state, tracker } = setupTracker();
 
                 const url = new URL('500.m3u8', baseUrl);
-                const fetch = performFetch(url, { tracker });
+                const fetch = fetcher.perform(url, { tracker });
                 const { stream } = await fetch;
 
                 expect(state).to.include({ total: 0, started: url });
@@ -379,11 +384,11 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
 
                 // Fail in start()
                 state.fail = true;
-                await expect(performFetch(url, { tracker })).to.reject(Error, 'start failed');
+                await expect(fetcher.perform(url, { tracker })).to.reject(Error, 'start failed');
 
                 // Fail in initial advance()
                 {
-                    const promise = performFetch(url, { tracker });
+                    const promise = fetcher.perform(url, { tracker });
                     state.fail = true;
                     await expect(promise).to.not.reject();
 
@@ -399,7 +404,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
 
                 // Fail in advance()
                 {
-                    const { stream } = await performFetch(url, { tracker });
+                    const { stream } = await fetcher.perform(url, { tracker });
 
                     state.fail = true;
 
@@ -415,7 +420,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
 
                 // Fail in finish()
                 {
-                    const { stream } = await performFetch(url, { tracker });
+                    const { stream } = await fetcher.perform(url, { tracker });
 
                     state.fail = 'finish';
 
@@ -435,7 +440,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
 
                 // Fail in finish() on request error
                 if (label.includes('http')) {
-                    const promise = performFetch(new URL('http://does.not.exist'), { tracker });
+                    const promise = fetcher.perform(new URL('http://does.not.exist'), { tracker });
                     state.fail = 'finish';
                     await expect(promise).to.reject(Error);
                     expect(state.ended).to.be.false();
@@ -443,7 +448,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
 
                 // Fail in finish() on 404
                 {
-                    const promise = performFetch(new URL('notFound.m3u8', baseUrl), { tracker });
+                    const promise = fetcher.perform(new URL('notFound.m3u8', baseUrl), { tracker });
                     state.fail = 'finish';
                     const err = await expect(promise).to.reject(Error);
                     const expectedStatus = err instanceof Boom ? { output: { statusCode: 404 } } : { httpStatus: 404 };

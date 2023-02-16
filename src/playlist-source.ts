@@ -1,6 +1,6 @@
 import type { HlsPlaylistFetcher } from './fetcher.js';
 
-export class HlsPlaylistSource<Fetcher extends HlsPlaylistFetcher> {
+export class HlsPlaylistSource<Fetcher extends HlsPlaylistFetcher<any>> {
 
     stallAfterMs: number;
 

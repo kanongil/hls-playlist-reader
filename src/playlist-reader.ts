@@ -11,11 +11,11 @@ export type HlsPlaylistReaderOptions = {
 
 export class HlsPlaylistReadable extends ReadableStream<PlaylistObject> {
 
-    fetch: HlsPlaylistFetcher;
+    fetch: HlsPlaylistFetcher<any>;
 
-    constructor(fetcher: HlsPlaylistFetcher, options: HlsPlaylistReaderOptions = {}) {
+    constructor(fetcher: HlsPlaylistFetcher<any>, options: HlsPlaylistReaderOptions = {}) {
 
-        const source = new HlsPlaylistSource<HlsPlaylistFetcher>(fetcher, { stallAfterMs: options.maxStallTime ?? Infinity });
+        const source = new HlsPlaylistSource<HlsPlaylistFetcher<any>>(fetcher, { stallAfterMs: options.maxStallTime ?? Infinity });
 
         super(source, new CountQueuingStrategy({ highWaterMark: 0 }));
 

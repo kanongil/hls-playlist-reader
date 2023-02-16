@@ -1,15 +1,15 @@
 import type { Meta } from 'uristream/lib/uri-reader.js';
+import type { Readable } from 'stream';
 
 import { EventEmitter } from 'events';
 import { watch } from 'fs';
 import { basename, dirname } from 'path';
-import { Readable } from 'stream';
 import { fileURLToPath } from 'url';
 
 import AgentKeepalive from 'agentkeepalive';
 import Uristream from 'uristream';
 
-import { AbortablePromise, AbortError, assert, ChangeWatcher, Deferred, FetchOptions, FetchResult, IChangeWatcher, setAbortControllerImpl } from './helpers.js';
+import { AbortablePromise, AbortError, assert, ChangeWatcher, Deferred, FetchOptions, IFetchResult, IChangeWatcher, IContentFetcher, setAbortControllerImpl } from './helpers.js';
 
 export * from './helpers.js';
 
@@ -92,195 +92,211 @@ const internals = {
 };
 
 
-export const performFetch = function (uri: URL, { byterange, probe = false, timeout, retries = 1, blocking, signal, tracker }: FetchOptions = {}): AbortablePromise<FetchResult<Readable>> {
+export type TFetcherStream = Readable;
 
-    signal?.throwIfAborted();
+class NodeFetchResult implements IFetchResult<TFetcherStream> {
 
-    let _token: unknown;
-    try {
-        _token = tracker?.start(uri, { byterange, blocking: !!blocking });
+    readonly meta: IFetchResult['meta'];
+    readonly completed: IFetchResult['completed'];
+    stream?: TFetcherStream;
+
+    constructor(meta: IFetchResult['meta'], stream: TFetcherStream | undefined, completed: IFetchResult['completed']) {
+
+        this.meta = meta;
+        this.stream = stream;
+        this.completed = completed;
     }
-    catch (err) {
-        return Object.assign(Promise.reject(err), {
-            // eslint-disable-next-line @typescript-eslint/no-empty-function
-            abort() {}
-        });
+
+    cancel(reason?: Error): void {
+
+        this.stream?.destroy(reason);
+        this.stream = undefined;
     }
 
-    const trackerMethod = function (method: 'advance' | 'finish') {
+    async consumeUtf8(): Promise<string> {
 
-        return tracker?.[method] ? (arg?: any) => {
+        let content = '';
 
-            try {
-                tracker?.[method]!(_token, arg);
+        const stream = this.stream;
+        if (stream) {
+            this.stream = undefined;
+
+            stream.setEncoding('utf-8');
+            for await (const chunk of stream) {
+                content += chunk;
             }
-            catch (err) {
-                // Ignore this error and cancel tracking
-                tracker = undefined;
-            }
-        } : undefined;
-    };
-
-    const advance = trackerMethod('advance');
-    const finish = trackerMethod('finish');
-
-    const streamOptions = Object.assign({
-        probe,
-        highWaterMark: internals.fetchBuffer,
-        timeout,
-        retries
-    }, internals.blockingConfig(blocking), byterange ? {
-        start: byterange.offset,
-        end: byterange.length !== undefined ? byterange.offset + byterange.length - 1 : undefined
-    } : undefined);
-
-    const stream = Uristream(uri.toString(), streamOptions);
-
-    // Track both ready (has meta) and completed (stream fully fetched / errored)
-
-    const completed = new Promise<void>((resolve, reject) => {
-
-        stream.on('error', reject);
-        stream.on('close', resolve);
-
-        if (!probe) {
-            // Intercept embedded push to immediately know when any underlying stream is completed.
-            // This way it doesn't need to be consumed for it to trigger.
-
-            const origPush = stream.push;
-            stream.push = (chunk: any, ...rest: any[]): boolean => {
-
-                if (chunk === null) {
-                    stream.removeListener('error', reject);
-                    stream.removeListener('close', resolve);
-                    process.nextTick(resolve);
-                }
-
-                return origPush.call(stream, chunk, ...rest);
-            };
         }
-    });
 
-    finish ? completed.then(finish, finish) : completed.catch(() => undefined);
-
-    if (advance) {
-        stream.on('data', (chunk) => advance(chunk.byteLength));
+        return content;
     }
+}
 
-    stream.pause();
+class NodeFetcher implements IContentFetcher<TFetcherStream> {
 
-    const ready = Object.assign(new Promise<FetchResult<Readable>>((resolve, reject) => {
+    static streamType: TFetcherStream;
 
-        const doFinish = (err: Error | null, meta?: Meta) => {
+    readonly type = 'node';
 
-            stream.removeListener('meta', onMeta);
-            stream.removeListener('end', onFail);
-            stream.removeListener('error', onFail);
+    perform(uri: URL, { byterange, probe = false, timeout, retries = 1, blocking, signal, tracker }: FetchOptions = {}): AbortablePromise<IFetchResult<TFetcherStream>> {
 
-            if (err) {
-                return reject(err);
-            }
+        signal?.throwIfAborted();
 
-            assert(meta);
+        let _token: unknown;
+        try {
+            _token = tracker?.start(uri, { byterange, blocking: !!blocking });
+        }
+        catch (err) {
+            return Object.assign(Promise.reject(err), {
+                // eslint-disable-next-line @typescript-eslint/no-empty-function
+                abort() {}
+            });
+        }
 
-            if (probe) {
-                stream.resume();     // Ensure that we actually end
-            }
+        const trackerMethod = function (method: 'advance' | 'finish') {
 
-            resolve({ meta, stream: probe ? undefined : stream, completed });
+            return tracker?.[method] ? (arg?: any) => {
+
+                try {
+                    tracker?.[method]!(_token, arg);
+                }
+                catch (err) {
+                    // Ignore this error and cancel tracking
+                    tracker = undefined;
+                }
+            } : undefined;
         };
 
-        const onMeta = (meta: Meta) => {
+        const advance = trackerMethod('advance');
+        const finish = trackerMethod('finish');
 
-            meta = Object.assign({}, meta);
+        const streamOptions = Object.assign({
+            probe,
+            highWaterMark: internals.fetchBuffer,
+            timeout,
+            retries
+        }, internals.blockingConfig(blocking), byterange ? {
+            start: byterange.offset,
+            end: byterange.length !== undefined ? byterange.offset + byterange.length - 1 : undefined
+        } : undefined);
+
+        const stream = Uristream(uri.toString(), streamOptions);
+
+        // Track both ready (has meta) and completed (stream fully fetched / errored)
+
+        const completed = new Promise<void>((resolve, reject) => {
+
+            stream.on('error', reject);
+            stream.on('close', resolve);
 
             if (!probe) {
-                advance?.(0);
+                // Intercept embedded push to immediately know when any underlying stream is completed.
+                // This way it doesn't need to be consumed for it to trigger.
+
+                const origPush = stream.push;
+                stream.push = (chunk: any, ...rest: any[]): boolean => {
+
+                    if (chunk === null) {
+                        stream.removeListener('error', reject);
+                        stream.removeListener('close', resolve);
+                        process.nextTick(resolve);
+                    }
+
+                    return origPush.call(stream, chunk, ...rest);
+                };
             }
+        });
 
-            // Change filesize to stream length
+        finish ? completed.then(finish, finish) : completed.catch(() => undefined);
 
-            if (meta.size >= 0 && byterange) {
-                meta.size = meta.size - byterange.offset;
-                if (byterange.length !== undefined) {
-                    meta.size = Math.min(meta.size, byterange.length);
+        if (advance) {
+            stream.on('data', (chunk) => advance(chunk.byteLength));
+        }
+
+        stream.pause();
+
+        const ready = Object.assign(new Promise<IFetchResult<TFetcherStream>>((resolve, reject) => {
+
+            const doFinish = (err: Error | null, meta?: Meta) => {
+
+                stream.removeListener('meta', onMeta);
+                stream.removeListener('end', onFail);
+                stream.removeListener('error', onFail);
+
+                if (err) {
+                    return reject(err);
+                }
+
+                assert(meta);
+
+                if (probe) {
+                    stream.resume();     // Ensure that we actually end
+                }
+
+                resolve(new NodeFetchResult(meta, probe ? undefined : stream, completed));
+            };
+
+            const onMeta = (meta: Meta) => {
+
+                meta = Object.assign({}, meta);
+
+                if (!probe) {
+                    advance?.(0);
+                }
+
+                // Change filesize to stream length
+
+                if (meta.size >= 0 && byterange) {
+                    meta.size = meta.size - byterange.offset;
+                    if (byterange.length !== undefined) {
+                        meta.size = Math.min(meta.size, byterange.length);
+                    }
+                }
+
+                return doFinish(null, meta);
+            };
+
+            const onFail = (err?: Error) => {
+
+                finish?.();
+
+                // Guard against broken uristream
+
+                /* $lab:coverage:off$ */ /* c8 ignore start */
+
+                if (!err) {
+                    err = new Error('No metadata');
+                }
+                /* $lab:coverage:on$ */ /* c8 ignore stop */
+
+                return doFinish(err);
+            };
+
+            stream.on('meta', onMeta);
+            stream.on('end', onFail);
+            stream.on('error', onFail);
+        }), {
+            abort(reason?: Error) {
+
+                if (!stream.destroyed) {
+                    stream.destroy(reason ?? new AbortError('Fetch was aborted'));
                 }
             }
+        });
 
-            return doFinish(null, meta);
-        };
+        // Handle abort signal
 
-        const onFail = (err?: Error) => {
+        if (signal) {
+            const onSignalAbort = () => ready.abort(signal.reason);
 
-            finish?.();
-
-            // Guard against broken uristream
-
-            /* $lab:coverage:off$ */ /* c8 ignore start */
-
-            if (!err) {
-                err = new Error('No metadata');
-            }
-            /* $lab:coverage:on$ */ /* c8 ignore stop */
-
-            return doFinish(err);
-        };
-
-        stream.on('meta', onMeta);
-        stream.on('end', onFail);
-        stream.on('error', onFail);
-    }), {
-        abort(reason?: Error) {
-
-            if (!stream.destroyed) {
-                stream.destroy(reason ?? new AbortError('Fetch was aborted'));
-            }
+            signal.addEventListener('abort', onSignalAbort);
+            completed.finally(() => signal.removeEventListener('abort', onSignalAbort));
         }
-    });
 
-    // Handle abort signal
-
-    if (signal) {
-        const onSignalAbort = () => ready.abort(signal.reason);
-
-        signal.addEventListener('abort', onSignalAbort);
-        completed.finally(() => signal.removeEventListener('abort', onSignalAbort));
+        return ready;
     }
+}
 
-    return ready;
-};
-
-
-/**
- * Read stream content from FetchResult as an UTF-8 string.
- */
-export const readFetchUtf8 = async function ({ stream }: FetchResult<Readable>): Promise<string> {
-
-    assert(stream, 'Must have a stream');
-
-    let content = '';
-
-    stream.setEncoding('utf-8');
-    for await (const chunk of stream) {
-        content += chunk;
-    }
-
-    return content;
-};
-
-
-/**
- * Cancel delivery of stream from FetchResult.
- *
- * Must be called when not otherwise consumed.
- */
-export const cancelFetch = function (fetch: FetchResult<Readable> | undefined, reason?: Error): void {
-
-    if (fetch?.stream) {
-        fetch.stream.destroy(reason);
-        fetch.stream = undefined;
-    }
-};
+export const ContentFetcher = NodeFetcher;
 
 
 type FSWatcherEvents = 'rename' | 'change' | 'timeout';

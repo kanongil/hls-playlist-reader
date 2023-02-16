@@ -1,13 +1,13 @@
 import type { Boom } from '@hapi/boom';
 
 import { HlsPlaylistFetcher as BasePlaylistFetcher } from './fetcher.js';
-import { performFetch, readFetchUtf8, FetchOptions, platformInit, cancelFetch } from './helpers.node.js';
+import { platformInit } from './helpers.node.js';
 
 platformInit();
 
 export * from './fetcher.js';
 
-export class HlsPlaylistFetcher extends BasePlaylistFetcher {
+export class HlsPlaylistFetcher<TContentStream extends object> extends BasePlaylistFetcher<TContentStream> {
 
     isRecoverableUpdateError(err: unknown): boolean {
 
@@ -21,20 +21,5 @@ export class HlsPlaylistFetcher extends BasePlaylistFetcher {
         }
 
         return super.isRecoverableUpdateError(err, httpStatus);
-    }
-
-    protected performFetch(url: URL, options?: FetchOptions): ReturnType<typeof performFetch> {
-
-        return performFetch(url, options);
-    }
-
-    protected readFetchContent(fetch: Awaited<ReturnType<typeof performFetch>>): Promise<string> {
-
-        return readFetchUtf8(fetch);
-    }
-
-    protected cancelFetch(fetch: Awaited<ReturnType<typeof performFetch>> | undefined): void {
-
-        return cancelFetch(fetch);
     }
 }
