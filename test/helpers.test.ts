@@ -4,6 +4,7 @@ import type { ContentFetcher as ContentFetcherNode } from '../lib/helpers.node.j
 import type { ContentFetcher as ContentFetcherWeb } from '../lib/helpers.web.js';
 
 import { Readable } from 'stream';
+import { ReadableStream } from 'node:stream/web';
 
 import { Boom } from '@hapi/boom';
 import { expect } from '@hapi/code';
@@ -11,7 +12,7 @@ import { ignore, wait } from '@hapi/hoek';
 
 import { Deferred, IDownloadTracker, wait as waitI } from '../lib/helpers.js';
 
-import { hasFetch, provisionServer, usesWebstreamPolyfill } from './_shared.js';
+import { hasFetch, provisionServer } from './_shared.js';
 
 declare global {
     // Add AsyncIterator which is implemented by node.js
@@ -26,7 +27,7 @@ await server.start();
 const testMatrix = new Map(Object.entries({
     'node+file': { module: '../lib/helpers.node.js', Class: Readable, baseUrl: new URL('fixtures/', import.meta.url).href },
     'node+http': { module: '../lib/helpers.node.js', Class: Readable, baseUrl: new URL('simple/', server.info.uri).href },
-    'web+http': { module: '../lib/helpers.web.js', Class: ReadableStream, baseUrl: new URL('simple/', server.info.uri).href, skip: usesWebstreamPolyfill || !hasFetch }
+    'web+http': { module: '../lib/helpers.web.js', Class: ReadableStream, baseUrl: new URL('simple/', server.info.uri).href, skip: !hasFetch }
 }));
 
 for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {

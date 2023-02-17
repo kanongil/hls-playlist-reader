@@ -1,7 +1,6 @@
-/// <reference lib="dom" />
-
 import type { HlsPlaylistFetcher, PlaylistObject } from './fetcher.js';
 
+import { webstreamImpl as WS } from './helpers.js';
 import { HlsPlaylistSource } from './playlist-source.js';
 
 
@@ -9,7 +8,7 @@ export type HlsPlaylistReaderOptions = {
     maxStallTime?: number;
 };
 
-export class HlsPlaylistReadable extends ReadableStream<PlaylistObject> {
+export class HlsPlaylistReadable extends WS.ReadableStream<PlaylistObject> {
 
     fetch: HlsPlaylistFetcher<any>;
 
@@ -17,7 +16,7 @@ export class HlsPlaylistReadable extends ReadableStream<PlaylistObject> {
 
         const source = new HlsPlaylistSource<HlsPlaylistFetcher<any>>(fetcher, { stallAfterMs: options.maxStallTime ?? Infinity });
 
-        super(source, new CountQueuingStrategy({ highWaterMark: 0 }));
+        super(source, new WS.CountQueuingStrategy({ highWaterMark: 0 }));
 
         this.fetch = source.fetch!;
     }

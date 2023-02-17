@@ -1,27 +1,34 @@
 import type { Meta } from 'uristream/lib/uri-reader.js';
 
-// Ponyfill Array.at() (ES2022 feature)
+// Expose a unified Webstream interface, required for node v16
 
-/* $lab:coverage:off$ */ /* c8 ignore start */
-export const arrayAt = Array.prototype.at ? function <T = unknown>(array: readonly T[], n: number): T | undefined {
+type WebstreamClasses =
+    'ByteLengthQueuingStrategy' |
+    'CountQueuingStrategy' |
+    'ReadableByteStreamController' |
+    'ReadableStream' |
+    'ReadableStreamBYOBReader' |
+    'ReadableStreamBYOBRequest' |
+    'ReadableStreamDefaultController' |
+    'ReadableStreamDefaultReader' |
+    'TextDecoderStream' |
+    'TextEncoderStream' |
+    'TransformStream' |
+    'TransformStreamDefaultController' |
+    'WritableStream' |
+    'WritableStreamDefaultController' |
+    'WritableStreamDefaultWriter';
 
-    return Array.prototype.at.call(array, n);
-} : function <T = unknown>(array: readonly T[], n: number): T | undefined {
+declare const WebstreamImpl: Pick<typeof globalThis, WebstreamClasses>;
 
-    n = Math.trunc(n) || 0;
+export const webstreamImpl: typeof WebstreamImpl = await (async () => {
 
-    if (n < 0) {
-        n += array.length;
+    if (typeof globalThis.ReadableStream === 'function') {
+        return globalThis;
     }
 
-    if (n < 0 || n >= array.length) {
-        return undefined;
-    }
-
-    return array[n];
-};
-/* $lab:coverage:on$ */ /* c8 ignore stop */
-
+    return (await import('node' + ':stream/web')).default;
+})();
 
 // Enable DOMException on pre-v17 node.js
 

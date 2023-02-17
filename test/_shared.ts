@@ -258,5 +258,3 @@ export const genLlIndex = function (query: Hapi.RequestQuery, state: LlIndexStat
 };
 
 export const hasFetch = typeof fetch === 'function';
-
-export const usesWebstreamPolyfill = (globalThis as any).__usesWebstreamPolyfill === true;
