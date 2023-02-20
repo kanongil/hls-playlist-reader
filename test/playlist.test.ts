@@ -1,6 +1,7 @@
 import { expect } from '@hapi/code';
 import { AttrList, MediaPlaylist, MediaSegment } from 'm3u8parse';
 
+import { arrayAt } from '../lib/helpers.js';
 import { ParsedPlaylist } from '../lib/playlist.js';
 
 
@@ -96,7 +97,7 @@ describe('ParsedPlaylist()', () => {
     it('nextHead() works when last segment is fully partial', () => {
 
         const index = new MediaPlaylist(livePlaylist);
-        index.segments[index.segments.length - 1].parts = undefined;
+        arrayAt(index.segments, -1)!.parts = undefined;
 
         const playlist = new ParsedPlaylist(index);
 
@@ -155,7 +156,7 @@ describe('ParsedPlaylist()', () => {
 
                 const playlist = new ParsedPlaylist(index);
 
-                expect(playlist.segments[playlist.segments.length - 1]).to.include({ program_time: null });
+                expect(playlist.segments.at(-1)!).to.include({ program_time: null });
                 expect(playlist.endDate).to.be.instanceOf(Date).and.to.equal(new Date(+_startDate + 24_500));
             });
 
@@ -166,18 +167,18 @@ describe('ParsedPlaylist()', () => {
 
                 const playlist = new ParsedPlaylist(index);
 
-                expect(playlist.segments[playlist.segments.length - 1]).to.include({ uri: 'segment23' });
+                expect(playlist.segments.at(-1)!).to.include({ uri: 'segment23' });
                 expect(playlist.endDate).to.be.instanceOf(Date).and.to.equal(new Date(+_startDate + 24_000));
             });
 
             it('returns correct computed date when last segment is fully partial', () => {
 
                 const index = new MediaPlaylist(livePlaylist);
-                index.segments[index.segments.length - 1].parts = undefined;
+                index.segments.at(-1)!.parts = undefined;
 
                 const playlist = new ParsedPlaylist(index);
 
-                expect(playlist.segments[playlist.segments.length - 1]).to.include({ parts: undefined });
+                expect(playlist.segments.at(-1)!).to.include({ parts: undefined });
                 expect(playlist.endDate).to.be.instanceOf(Date).and.to.equal(new Date(+_startDate + 24_000));
             });
 

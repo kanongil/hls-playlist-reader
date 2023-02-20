@@ -198,6 +198,7 @@ class WebFetcher implements IContentFetcher<TFetcherStream> {
                 completed = new Promise<void>((resolve, reject) => {
 
                     // Hook a specific signal that is always aborted, to workaround Safari memory leak
+                    // Issue observed in Safari 16 and fixed in ?? with https://github.com/WebKit/WebKit/pull/6759
 
                     const ac = new AbortController();
                     const onSignalAbort = () => ac.abort(signal!.reason);

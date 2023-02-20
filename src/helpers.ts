@@ -1,5 +1,28 @@
 import type { Meta } from 'uristream/lib/uri-reader.js';
 
+// Ponyfill Array.at() (ES2022 feature, required for Safari < 15.4)
+
+/* $lab:coverage:off$ */ /* c8 ignore start */
+export const arrayAt = (<any> Array.prototype).at ? function <T = unknown>(array: readonly T[], n: number): T | undefined {
+
+    return (<any> Array.prototype).at.call(array, n);
+} : function <T = unknown>(array: readonly T[], n: number): T | undefined {
+
+    n = Math.trunc(n) || 0;
+
+    if (n < 0) {
+        n += array.length;
+    }
+
+    if (n < 0 || n >= array.length) {
+        return undefined;
+    }
+
+    return array[n];
+};
+/* $lab:coverage:on$ */ /* c8 ignore stop */
+
+
 // Expose a unified Webstream interface, required for node v16
 
 type WebstreamClasses =

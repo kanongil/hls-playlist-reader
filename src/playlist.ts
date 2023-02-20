@@ -1,6 +1,6 @@
 import type { ImmutableMediaPlaylist, ImmutableMediaSegment } from 'm3u8parse/playlist';
 
-import { Byterange } from './helpers.js';
+import { arrayAt, Byterange } from './helpers.js';
 
 import { MediaPlaylist } from 'm3u8parse';
 
@@ -34,7 +34,7 @@ export class ParsedPlaylist {
 
             stripped.server_control?.delete('part-hold-back');
 
-            if (stripped.segments.at(-1)?.isPartial()) {
+            if (arrayAt(stripped.segments, -1)?.isPartial()) {
                 stripped.segments.pop();
             }
 
@@ -59,14 +59,14 @@ export class ParsedPlaylist {
 
         // Same + partial check
 
-        return (this.segments.at(-1)!.parts?.length ===
-            index.segments.at(-1)!.parts?.length);
+        return (arrayAt(this.segments, -1)!.parts?.length ===
+            arrayAt(index.segments, -1)!.parts?.length);
     }
 
     nextHead(): { msn: number; part?: number } {
 
         if (this.partTarget && !this._index.i_frames_only) {
-            const lastSegment = this.segments.at(-1)!;
+            const lastSegment = arrayAt(this.segments, -1)!;
 
             const next = {
                 msn: this._index.lastMsn(true),
