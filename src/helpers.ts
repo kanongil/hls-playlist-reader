@@ -55,7 +55,7 @@ export const webstreamImpl: typeof WebstreamImpl = await (async () => {
 // Enable DOMException on pre-v17 node.js
 
 /* $lab:coverage:off$ */ /* c8 ignore start */
-declare const process: any;
+declare const process: unknown;
 let DOMException = globalThis.DOMException;
 if (!DOMException && typeof process !== 'undefined') {
     try {
