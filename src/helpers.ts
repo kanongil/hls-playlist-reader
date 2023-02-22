@@ -1,4 +1,3 @@
-import type { Meta } from 'uristream/lib/uri-reader.js';
 
 // Ponyfill Array.at() (ES2022 feature, required for Safari < 15.4)
 
@@ -56,6 +55,7 @@ export const webstreamImpl: typeof WebstreamImpl = await (async () => {
 // Enable DOMException on pre-v17 node.js
 
 /* $lab:coverage:off$ */ /* c8 ignore start */
+declare const process: any;
 let DOMException = globalThis.DOMException;
 if (!DOMException && typeof process !== 'undefined') {
     try {
@@ -148,8 +148,16 @@ export type FetchOptions = {
     tracker?: IDownloadTracker;
 };
 
+export type FetchMeta = {
+    url: string;
+    mime: string;
+    size: number;
+    modified: Date | null;
+    etag?: string;
+};
+
 export interface IFetchResult<T extends object | unknown = unknown> {
-    readonly meta: Meta;
+    readonly meta: FetchMeta;
 
     /**
      * Resolved once the stream data has been fetched, or rejects (without requiring a listener) with any transfer errors.

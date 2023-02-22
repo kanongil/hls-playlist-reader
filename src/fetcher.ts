@@ -73,7 +73,7 @@ export class HlsPlaylistFetcher<TContentStream extends object = any> {
     #playlist?: ParsedPlaylist;
     #fetch?: AbortablePromise<IFetchResult<TContentStream>>;
     #watcher?: IChangeWatcher;
-    #stallTimer?: NodeJS.Timeout;
+    #stallTimer?: ReturnType<typeof setTimeout>;
     #latest?: Promise<PlaylistObject>;
     #pending?: Promise<PlaylistObject>;
     //#waiting?: Deferred<void>;
