@@ -5,8 +5,7 @@ const TypescriptRules = require('@typescript-eslint/eslint-plugin').rules;
 
 
 const denylist = new Set([
-    'padding-line-between-statements',    // Incompatible syntax
-    'key-spacing'                         // Currently broken in node v14: https://github.com/typescript-eslint/typescript-eslint/issues/6396
+    'padding-line-between-statements'     // Incompatible syntax
 ]);
 
 
