@@ -1,6 +1,6 @@
-# HlsPlaylistReader for node.js
+# HlsPlaylistReader
 
-Read playlist updates from any [Apple HLS](http://tools.ietf.org/html/draft-pantos-http-live-streaming) source in an object-mode `Readable`.
+Read playlist updates from any [Apple HLS](http://tools.ietf.org/html/draft-pantos-http-live-streaming) source in a W3C `ReadableStream`.
 
 ![Node.js CI](https://github.com/kanongil/hls-playlist-reader/workflows/Node.js%20CI/badge.svg)
 
@@ -14,7 +14,7 @@ $ npm install hls-playlist-reader
 
 (BSD 2-Clause License)
 
-Copyright (c) 2020, Gil Pedersen &lt;gpdev@gpost.dk&gt;
+Copyright (c) 2023, Gil Pedersen &lt;gpdev@gpost.dk&gt;
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
