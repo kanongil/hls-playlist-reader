@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 
-import { AbortablePromise, AbortError, assert, FetchOptions, IFetchResult, IContentFetcher, TimeoutError } from './helpers.js';
+import { AbortablePromise, AbortError, assert, FetchOptions, IFetchResult, IContentFetcher, TimeoutError, webstreamImpl as WS } from './helpers.js';
 
 export * from './helpers.js';
 
@@ -58,7 +58,7 @@ class WebFetchResult implements IFetchResult<TFetcherStream> {
 
 class WebFetcher implements IContentFetcher<TFetcherStream> {
 
-    static StreamProto: TFetcherStream = ReadableStream.prototype;
+    static StreamProto: TFetcherStream = WS.ReadableStream.prototype;
 
     readonly type = 'web';
 
