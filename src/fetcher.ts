@@ -42,6 +42,25 @@ export interface PlaylistObject<T extends M3U8Playlist = M3U8Playlist> {
 
 export class HlsPlaylistFetcher<TContentStream extends object = any> {
 
+    static [Symbol.hasInstance](instance: any) {
+
+        if (typeof instance !== 'object') {
+            return false;
+        }
+
+        return this.prototype.isPrototypeOf(instance) || (() => {
+
+            const proto = HlsPlaylistFetcher.prototype as any;
+            for (const key of Object.getOwnPropertyNames(proto)) {
+                if (key[0] !== '_' && !(key in instance)) {
+                    return false;
+                }
+            }
+
+            return true;
+        })();
+    }
+
     static readonly indexMimeTypes = new Set([
         'application/vnd.apple.mpegurl',
         'application/x-mpegurl',
