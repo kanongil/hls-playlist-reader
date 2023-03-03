@@ -242,9 +242,10 @@ class NodeFetcher implements IContentFetcher<TFetcherStream> {
 
         if (signal) {
             const onSignalAbort = () => ready.abort(signal.reason);
+            const cleanup = () => signal.removeEventListener('abort', onSignalAbort);
 
             signal.addEventListener('abort', onSignalAbort);
-            completed.finally(() => signal.removeEventListener('abort', onSignalAbort));
+            completed.then(cleanup, cleanup);
         }
 
         return ready;
