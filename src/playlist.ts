@@ -48,7 +48,7 @@ export class ParsedPlaylist {
         this._index = index;
     }
 
-    isSameHead(index: Readonly<MediaPlaylist>): boolean {
+    isSameHead(index: Readonly<MediaPlaylist> | ImmutableMediaPlaylist): boolean {
 
         const includePartial = !(this._stripLowLatency || this._index.i_frames_only);
 
