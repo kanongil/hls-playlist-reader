@@ -330,7 +330,7 @@ export class HlsPlaylistFetcher<TContentStream extends object = any> {
         let meta: FetchUrlResult['meta'];
         assert(!this.#fetch, 'Already fetching');
 
-        this.#fetch = this.contentFetcher.perform(url, Object.assign({ timeout: 30 * 1000, signal: this.#ac.signal }, options));
+        this.#fetch = this.contentFetcher.perform(url, Object.assign({ retries: 0, timeout: 30 * 1000, signal: this.#ac.signal }, options));
         return this.#fetch
             .then(async (result) => {
 

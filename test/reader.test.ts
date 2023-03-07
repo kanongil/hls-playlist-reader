@@ -532,18 +532,16 @@ for (const [label, { helpers, skip }] of testMatrix) {
                                 state.error!++;
                                 switch (error) {
                                     case 1:
-                                    case 2:
-                                    case 3:
                                         throw Boom.notFound();
-                                    case 4:
+                                    case 2:
                                         throw Boom.serverUnavailable();
-                                    case 5:
+                                    case 3:
                                         throw Boom.unauthorized();
                                 }
                             }
                             else if (state.firstMsn === 5) {
                                 state.error = 1;
-                                return '';
+                                return '';       // Empty index
                             }
 
                             const index = Shared.genIndex(state);
@@ -572,7 +570,7 @@ for (const [label, { helpers, skip }] of testMatrix) {
                     expectCause(err, 'Unauthorized');
 
                     expect(playlists).to.have.length(5);
-                    expect(errors).to.have.length(4);            // Web stream fails due to missing fetch internal retries on 404
+                    expect(errors).to.have.length(4);
                     expectCause(errors[0], 'No line data');
                     expectCause(errors[1], 'Not Found');
                     expectCause(errors[2], 'Service Unavailable');
