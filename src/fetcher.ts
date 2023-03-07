@@ -370,8 +370,6 @@ export class HlsPlaylistFetcher<TContentStream extends object = any> {
                 if (!this.canUpdate() || !playlist.isSameHead(res.index)) {
                     return res;
                 }
-
-                wasUpdated = false;
             }
             catch (err) {
                 if (!(err instanceof Error) ||
@@ -384,6 +382,8 @@ export class HlsPlaylistFetcher<TContentStream extends object = any> {
 
                 wasError = true;
             }
+
+            wasUpdated = false;
 
             await wait(100);     // Always wait at least 100ms before retrying
         }
