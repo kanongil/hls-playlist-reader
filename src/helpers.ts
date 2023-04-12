@@ -217,6 +217,11 @@ export class Deferred<T> {
     resolve: (arg?: T | PromiseLike<T>) => void = undefined as any;
     reject: (err: Error) => void = undefined as any;
 
+    /**
+     * Create a deferred Promise that can be resolved externally.
+     *
+     * @param independent Set to implicitly catch errors (ie. no unresolved promise warnings if no one listens).
+     */
     constructor(independent = false) {
 
         this.promise = new Promise<T>((resolve, reject) => {
@@ -264,7 +269,7 @@ export interface IChangeWatcher {
 }
 
 export class ChangeWatcher {
-    static #registry = new Map<string,(uri: URL) => IChangeWatcher>();
+    static #registry = new Map<string,(uri: URL) => IChangeWatcher | undefined>();
 
     static create(uri: URL): IChangeWatcher | undefined {
 
@@ -272,7 +277,7 @@ export class ChangeWatcher {
         return factory ? factory(uri) : undefined;
     }
 
-    static register(proto: string, factory: (uri: URL) => IChangeWatcher) {
+    static register(proto: string, factory: (uri: URL) => IChangeWatcher | undefined) {
 
         this.#registry.set(proto, factory);
     }
