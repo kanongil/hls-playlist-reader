@@ -1,3 +1,4 @@
+/// <reference lib="dom" />
 
 // Ponyfill Array.at() (ES2022 feature, required for Safari < 15.4)
 
@@ -52,11 +53,15 @@ export const webstreamImpl: typeof WebstreamImpl = await (async () => {
     return (await import('node' + ':stream/web')).default;
 })();
 
-// Enable DOMException on pre-v17 node.js
+// Enable internal DOMException on pre-v17 node.js
+
+declare class DOMException_ extends Error {
+    constructor(message?: string | undefined, name?: string | undefined);
+}
 
 /* $lab:coverage:off$ */ /* c8 ignore start */
 declare const process: unknown;
-let DOMException = globalThis.DOMException;
+let DOMException: typeof DOMException_ = globalThis.DOMException as any;
 if (!DOMException && typeof process !== 'undefined') {
     try {
         const { MessageChannel } = await import('worker' + '_threads');    // Don't use full name to avoid pre-compile from tools
