@@ -634,6 +634,32 @@ for (const [label, { helpers, skip }] of testMatrix) {
 
                     expect(playlists.length).to.equal(13);
                 });
+
+                it('rejects if blocking update does not contain new part data', async () => {
+
+                    const stallAt = { _HLS_msn: 11, _HLS_part: 3 };
+
+                    const { reader, state } = prepareLlReader({}, { partIndex: 4, end: { msn: 20, part: 3 } }, (query) => {
+
+                        if (query._HLS_msn > stallAt._HLS_msn ||
+                            (query._HLS_msn === stallAt._HLS_msn && query._HLS_part > stallAt._HLS_part)) {
+
+                            query = stallAt;
+                        }
+
+                        return genLlIndex(query, state);
+                    });
+
+                    const playlists = [];
+                    await expect((async () => {
+
+                        for await (const obj of reader) {
+                            playlists.push(obj);
+                        }
+                    })()).to.reject(Error, 'Blocking media playlist response was not an update');
+
+                    expect(playlists.length).to.equal(6);
+                });
             });
 
             // TODO: resilience??

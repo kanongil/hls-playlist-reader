@@ -370,6 +370,12 @@ export class HlsPlaylistFetcher<TContentStream extends object = any> {
                 if (!this.canUpdate() || !playlist.isSameHead(res.index)) {
                     return res;
                 }
+
+                // Not an actual update...
+
+                if (playlist.serverControl.canBlockReload) {
+                    throw new Error('Blocking media playlist response was not an update');
+                }
             }
             catch (err) {
                 if (!(err instanceof Error) ||
