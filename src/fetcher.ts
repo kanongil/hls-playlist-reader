@@ -225,7 +225,7 @@ export class HlsPlaylistFetcher<TContentStream extends object = any> {
         const { recoverableCodes } = HlsPlaylistFetcher;
 
         if ((err as any).isBlocking === true) {
-            return true;
+            return true;        // Always allow retries when the request was blocking. Next request will be non-blocking.
         }
 
         if (!httpStatus && typeof (err as any).httpStatus === 'number') {
@@ -298,8 +298,7 @@ export class HlsPlaylistFetcher<TContentStream extends object = any> {
         if (partTarget! > 0 && !index.i_frames_only) {
             updateInterval = partTarget!;
         }
-
-        if (!updated || !index.segments.length) {
+        else if (!updated || !index.segments.length) {
             updateInterval /= 2;
         }
 
@@ -371,10 +370,10 @@ export class HlsPlaylistFetcher<TContentStream extends object = any> {
                     return res;
                 }
 
-                // Not an actual update...
+                // Retrieved a playlist response, but not an actual update...
 
-                if (playlist.serverControl.canBlockReload) {
-                    throw new Error('Blocking media playlist response was not an update');
+                if (wasUpdated && playlist.serverControl.canBlockReload) {
+                    throw new Error('Fatal stream inconsistency error: Blocking media playlist response was not an update');
                 }
             }
             catch (err) {

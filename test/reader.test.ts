@@ -656,7 +656,7 @@ for (const [label, { helpers, skip }] of testMatrix) {
                         for await (const obj of reader) {
                             playlists.push(obj);
                         }
-                    })()).to.reject(Error, 'Blocking media playlist response was not an update');
+                    })()).to.reject(Error, /Blocking media playlist response was not an update/);
 
                     expect(playlists.length).to.equal(6);
                 });
