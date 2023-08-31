@@ -23,62 +23,6 @@ export const arrayAt = (<any> Array.prototype).at ? function <T = unknown>(array
 /* $lab:coverage:on$ */ /* c8 ignore stop */
 
 
-// Expose a unified Webstream interface, required for node v16
-
-type WebstreamClasses =
-    'ByteLengthQueuingStrategy' |
-    'CountQueuingStrategy' |
-    'ReadableByteStreamController' |
-    'ReadableStream' |
-    'ReadableStreamBYOBReader' |
-    'ReadableStreamBYOBRequest' |
-    'ReadableStreamDefaultController' |
-    'ReadableStreamDefaultReader' |
-    'TextDecoderStream' |
-    'TextEncoderStream' |
-    'TransformStream' |
-    'TransformStreamDefaultController' |
-    'WritableStream' |
-    'WritableStreamDefaultController' |
-    'WritableStreamDefaultWriter';
-
-declare const WebstreamImpl: Pick<typeof globalThis, WebstreamClasses>;
-
-export const webstreamImpl: typeof WebstreamImpl = await (async () => {
-
-    if (typeof globalThis.ReadableStream === 'function') {
-        return globalThis;
-    }
-
-    return (await import('node' + ':stream/web')).default;
-})();
-
-// Enable internal DOMException on pre-v17 node.js
-
-declare class DOMException_ extends Error {
-    constructor(message?: string | undefined, name?: string | undefined);
-}
-
-/* $lab:coverage:off$ */ /* c8 ignore start */
-declare const process: unknown;
-let DOMException: typeof DOMException_ = globalThis.DOMException as any;
-if (!DOMException && typeof process !== 'undefined') {
-    try {
-        const { MessageChannel } = await import('worker' + '_threads');    // Don't use full name to avoid pre-compile from tools
-
-        const port = new MessageChannel().port1;
-        const ab = new ArrayBuffer(0);
-        port.postMessage(ab, [ab, ab]);
-    }
-    catch (err: any) {
-        err.constructor.name === 'DOMException' && (
-            (DOMException as any) = err.constructor
-        );
-    }
-}
-/* $lab:coverage:on$ */ /* c8 ignore stop */
-
-
 export class AbortError extends DOMException {
     constructor(message: string, options?: { cause: unknown }) {
 

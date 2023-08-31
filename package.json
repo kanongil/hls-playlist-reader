@@ -28,7 +28,7 @@
   "author": "Gil Pedersen <gpdev@gpost.dk>",
   "license": "BSD-2-Clause",
   "engines": {
-    "node": ">=16.17.0"
+    "node": ">=18.12.0"
   },
   "exports": {
     ".": "./lib/index.js",
