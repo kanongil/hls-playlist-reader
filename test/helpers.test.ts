@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-loop-func */
 
-import type { ContentFetcher as ContentFetcherNode } from '../lib/helpers.node.js';
+import type { ContentFetcher as ContentFetcherNode, IURL } from '../lib/helpers.node.js';
 import type { ContentFetcher as ContentFetcherWeb } from '../lib/helpers.web.js';
 
 import { Readable } from 'stream';
@@ -8,7 +8,8 @@ import { ReadableStream } from 'node:stream/web';
 
 import { Boom } from '@hapi/boom';
 import { expect } from '@hapi/code';
-import { ignore, wait } from '@hapi/hoek';
+import ignore from '@hapi/hoek/ignore';
+import wait from '@hapi/hoek/wait';
 
 import { Deferred, IDownloadTracker, wait as waitI } from '../lib/helpers.js';
 
@@ -249,7 +250,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                     }
                 };
 
-                const state: { total?: number; started?: URL; config?: Parameters<IDownloadTracker['start']>[1]; ended?: boolean; fail?: boolean | string } = {};
+                const state: { total?: number; started?: IURL; config?: Parameters<IDownloadTracker['start']>[1]; ended?: boolean; fail?: boolean | string } = {};
                 const tracker: IDownloadTracker<typeof state> = {
                     start(uri, config) {
 

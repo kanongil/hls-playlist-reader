@@ -23,6 +23,11 @@ export const arrayAt = (<any> Array.prototype).at ? function <T = unknown>(array
 /* $lab:coverage:on$ */ /* c8 ignore stop */
 
 
+// Create URL interface to support both node URL and DOM URL objects
+
+export type IURL = Omit<URL, 'searchParams'> & { searchParams: any };
+
+
 export class AbortError extends DOMException {
     constructor(message: string, options?: { cause: unknown }) {
 
@@ -60,7 +65,7 @@ export interface IDownloadTracker<Token = unknown> {
      *
      * @return An unique opaque Token that is passed to the advance() and finish() callbacks.
      */
-    start(url: URL, config: { byterange?: Byterange; blocking?: boolean }): Token;
+    start(url: IURL, config: { byterange?: Byterange; blocking?: boolean }): Token;
 
     /**
      * Called whenever a chunk of payload data has been received.
@@ -140,7 +145,7 @@ export interface IContentFetcher<TContentStream extends object> {
     /**
      * Fetch metadata for uri and prepare a content stream for reading.
      */
-    perform(uri: URL, options: FetchOptions): AbortablePromise<IFetchResult<TContentStream>>;
+    perform(uri: IURL, options: FetchOptions): AbortablePromise<IFetchResult<TContentStream>>;
 }
 
 
@@ -213,15 +218,15 @@ export interface IChangeWatcher {
 }
 
 export class ChangeWatcher {
-    static #registry = new Map<string,(uri: URL) => IChangeWatcher | undefined>();
+    static #registry = new Map<string,(uri: IURL) => IChangeWatcher | undefined>();
 
-    static create(uri: URL): IChangeWatcher | undefined {
+    static create(uri: IURL): IChangeWatcher | undefined {
 
         const factory = this.#registry.get(uri.protocol);
         return factory ? factory(uri) : undefined;
     }
 
-    static register(proto: string, factory: (uri: URL) => IChangeWatcher | undefined) {
+    static register(proto: string, factory: (uri: IURL) => IChangeWatcher | undefined) {
 
         this.#registry.set(proto, factory);
     }

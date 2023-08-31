@@ -1,6 +1,6 @@
 import M3U8Parse, { MediaPlaylist, ParserError, M3U8Playlist } from 'm3u8parse';
 
-import { AbortError, AbortablePromise, assert, ChangeWatcher, FetchOptions, IFetchResult, IChangeWatcher, wait, IContentFetcher } from './helpers.js';
+import { AbortError, AbortablePromise, assert, ChangeWatcher, FetchOptions, IFetchResult, IChangeWatcher, wait, IContentFetcher, IURL } from './helpers.js';
 import { ParsedPlaylist } from './playlist.js';
 
 
@@ -98,7 +98,7 @@ export class HlsPlaylistFetcher<TContentStream extends object = any> {
     //#waiting?: Deferred<void>;
     #ac = new AbortController();
 
-    constructor(uri: URL | string, fetcher: IContentFetcher<TContentStream>, options: HlsPlaylistFetcherOptions = {}) {
+    constructor(uri: IURL | string, fetcher: IContentFetcher<TContentStream>, options: HlsPlaylistFetcherOptions = {}) {
 
         this.url = new URL(uri as any);
         this.baseUrl = this.url.href;

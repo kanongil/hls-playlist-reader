@@ -1,10 +1,11 @@
 import Fs from 'fs';
 import Os from 'os';
 import Path from 'path';
-import { pathToFileURL } from 'url';
+import { pathToFileURL, URL } from 'url';
 
+import assert from '@hapi/hoek/assert';
 import { expect } from '@hapi/code';
-import { assert, wait } from '@hapi/hoek';
+import wait from '@hapi/hoek/wait';
 
 import { ChangeWatcher } from '../lib/helpers.node.js';
 

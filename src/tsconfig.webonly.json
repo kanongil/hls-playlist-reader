@@ -1,4 +1,8 @@
 {
   "extends": "./tsconfig",
-  "exclude": ["**.node.ts", "index.ts"]
+  "compilerOptions": {
+    "module": "ES2022",
+    "moduleResolution": "Bundler"
+  },
+  "exclude": ["**.node.ts", "index.ts"],
 }

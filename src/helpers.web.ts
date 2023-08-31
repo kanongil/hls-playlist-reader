@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 
-import { AbortablePromise, AbortError, assert, FetchOptions, IFetchResult, IContentFetcher, TimeoutError } from './helpers.js';
+import { AbortablePromise, AbortError, assert, FetchOptions, IFetchResult, IContentFetcher, TimeoutError, IURL } from './helpers.js';
 
 export * from './helpers.js';
 
@@ -65,7 +65,7 @@ class WebFetcher implements IContentFetcher<TFetcherStream> {
     protocols = new Set(['http:', 'https:', 'data:']);
     httpHardFail = new Set([301, 400, 401, 410, 501]);
 
-    perform(uri: URL, options: FetchOptions = {}): AbortablePromise<IFetchResult<TFetcherStream>> {
+    perform(uri: IURL, options: FetchOptions = {}): AbortablePromise<IFetchResult<TFetcherStream>> {
 
         const { signal, timeout } = options;
 

@@ -2,10 +2,11 @@ import * as Fs from 'fs';
 import { Readable } from 'stream';
 
 import * as Hapi from '@hapi/hapi';
-import * as Hoek from '@hapi/hoek';
+import ignore from '@hapi/hoek/ignore';
 import Inert from '@hapi/inert';
 import Joi from 'joi';
 import { AttrList, M3U8Playlist, MediaPlaylist, MediaSegment } from 'm3u8parse';
+import wait from '@hapi/hoek/wait';
 import { HlsPlaylistFetcher } from '../src/fetcher.js';
 
 
@@ -25,7 +26,7 @@ export const provisionServer = async () => {
 
     const delay: Hapi.Lifecycle.Method = async (_request, _h) => {
 
-        await Hoek.wait(200);
+        await wait(200);
 
         return 200;
     };
@@ -33,7 +34,7 @@ export const provisionServer = async () => {
     const slowServe: Hapi.Lifecycle.Method = (request, h) => {
 
         const slowStream = new Readable();
-        slowStream._read = Hoek.ignore;
+        slowStream._read = ignore;
 
         const url = new URL(`fixtures/${request.params.path}`, import.meta.url);
         const buffer = Fs.readFileSync(url);
@@ -91,7 +92,7 @@ export const provisionLiveServer = function (shared: { state: ServerState }) {
     const serveSegment: Hapi.Lifecycle.Method = (request, h) => {
 
         if (shared.state.slow) {
-            const slowStream = new Readable({ read: Hoek.ignore });
+            const slowStream = new Readable({ read: ignore });
 
             slowStream.push(Buffer.alloc(5000));
 
@@ -103,7 +104,7 @@ export const provisionLiveServer = function (shared: { state: ServerState }) {
         if (shared.state.unstable) {
             --shared.state.unstable;
 
-            const unstableStream = new Readable({ read: Hoek.ignore });
+            const unstableStream = new Readable({ read: ignore });
 
             unstableStream.push(Buffer.alloc(50 - shared.state.unstable));
             unstableStream.push(null);

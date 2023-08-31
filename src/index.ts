@@ -1,4 +1,5 @@
 import type { HlsPlaylistFetcherOptions } from './fetcher.js';
+import type { IURL } from './helpers.js';
 import type { HlsPlaylistReaderOptions } from './playlist-reader.js';
 
 import { HlsPlaylistReadable } from './playlist-reader.js';
@@ -7,7 +8,7 @@ const isNodeRuntime = typeof process === 'object' && !!process.version;
 const HlsPlaylistFetcher = (isNodeRuntime ? await import('./fetcher.node.js') : await import('./fetcher.js')).HlsPlaylistFetcher;
 const ContentFetcher = (isNodeRuntime ? await import('./helpers.node.js') : await import('./helpers.web.js')).ContentFetcher;
 
-const createReader = function (uri: URL | string, options?: HlsPlaylistFetcherOptions & HlsPlaylistReaderOptions): HlsPlaylistReadable {
+const createReader = function (uri: IURL | string, options?: HlsPlaylistFetcherOptions & HlsPlaylistReaderOptions): HlsPlaylistReadable {
 
     return new HlsPlaylistReadable(new HlsPlaylistFetcher<typeof ContentFetcher['StreamProto']>(uri, new ContentFetcher(), options), options);
 };

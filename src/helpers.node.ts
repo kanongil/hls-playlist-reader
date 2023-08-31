@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 import AgentKeepalive from 'agentkeepalive';
 import Uristream from 'uristream';
 
-import { AbortablePromise, AbortError, assert, ChangeWatcher, Deferred, FetchOptions, IFetchResult, IChangeWatcher, IContentFetcher } from './helpers.js';
+import { AbortablePromise, AbortError, assert, ChangeWatcher, Deferred, FetchOptions, IFetchResult, IChangeWatcher, IContentFetcher, IURL } from './helpers.js';
 
 export * from './helpers.js';
 
@@ -92,7 +92,7 @@ class NodeFetcher implements IContentFetcher<TFetcherStream> {
 
     readonly type = 'node';
 
-    perform(uri: URL, { byterange, probe = false, timeout, retries = 1, blocking, signal, tracker }: FetchOptions = {}): AbortablePromise<IFetchResult<TFetcherStream>> {
+    perform(uri: IURL, { byterange, probe = false, timeout, retries = 1, blocking, signal, tracker }: FetchOptions = {}): AbortablePromise<IFetchResult<TFetcherStream>> {
 
         signal?.throwIfAborted();
 
@@ -266,7 +266,7 @@ export class FsWatcher implements IChangeWatcher {
     private _delayed?: FSWatcherEvents;
     private _timer?: NodeJS.Timeout;
 
-    constructor(uri: URL | string) {
+    constructor(uri: IURL | string) {
 
         const change = (eventType: FSWatcherEvents, name: string) => {
 
@@ -369,4 +369,4 @@ export class FsWatcher implements IChangeWatcher {
     }
 }
 
-ChangeWatcher.register('file:', (uri: URL) => new FsWatcher(uri));
+ChangeWatcher.register('file:', (uri: IURL) => new FsWatcher(uri));
