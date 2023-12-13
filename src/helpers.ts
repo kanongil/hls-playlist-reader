@@ -160,6 +160,8 @@ export function assert(condition: unknown, ...args: any[]): asserts condition {
 }
 
 
+const NOOP = () => undefined;
+
 export class Deferred<T> {
 
     promise: Promise<T>;
@@ -176,12 +178,18 @@ export class Deferred<T> {
         this.promise = new Promise<T>((resolve, reject) => {
 
             this.resolve = resolve as any;
-            this.reject = reject;
-        });
 
-        if (independent) {
-            this.promise.catch(() => undefined);
-        }
+            if (independent) {
+                this.reject = function (err) {
+
+                    this.promise.catch(NOOP);
+                    return reject(err);
+                };
+            }
+            else {
+                this.reject = reject;
+            }
+        });
     }
 }
 
