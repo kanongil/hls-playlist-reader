@@ -88,12 +88,12 @@ class WebFetcher implements IContentFetcher<TFetcherStream> {
             signal.addEventListener('abort', onSignalAbort);
             promise
                 .then((res) => res.completed)
-                .catch(() => undefined).then(() => signal.removeEventListener('abort', onSignalAbort));
+                .catch(() => undefined).then(() => signal.removeEventListener('abort', onSignalAbort), () => undefined);
         }
 
         if (typeof timeout === 'number') {
             const timer = setTimeout(() => ac.abort(new TimeoutError('Fetch timed out')), timeout);
-            promise.catch(() => undefined).then(() => clearTimeout(timer));
+            promise.catch(() => undefined).then(() => clearTimeout(timer), () => undefined);
         }
 
         return promise;
@@ -212,7 +212,7 @@ class WebFetcher implements IContentFetcher<TFetcherStream> {
 
                         signal.removeEventListener('abort', onSignalAbort);
                         ac.abort();    // Late abort that ensures signal abort handler is triggered in order to free its scope
-                    });
+                    }, () => undefined);
 
                     stream = orig;
                 });

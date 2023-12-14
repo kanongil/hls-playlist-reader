@@ -24,14 +24,14 @@ describe('HlsPlaylistFetcher (node+file)', () => {
             await Fs.promises.writeFile(indexUrl, genIndex(state).toString(), 'utf-8');
 
             const fetcher = new HlsPlaylistFetcherNode(indexUrl.href, new ContentFetcherNode());
-            const playlists = [];
+            const playlists: unknown[] = [];
 
             const start = await fetcher.index();
             expect(start.index.master).to.be.false();
             expect(start.playlist!.index.media_sequence).to.equal(0);
             playlists.push(start);
 
-            (async () => {
+            const writer = (async () => {
 
                 while (!state.ended) {
                     state.firstMsn++;
@@ -48,13 +48,18 @@ describe('HlsPlaylistFetcher (node+file)', () => {
                 }
             })();
 
-            await wait(10);
+            const reader = (async () => {
 
-            while (fetcher.canUpdate()) {
-                const obj = await fetcher.update();
-                expect(obj.playlist!.index.media_sequence).to.equal(playlists.length);
-                playlists.push(obj);
-            }
+                await wait(10);
+
+                while (fetcher.canUpdate()) {
+                    const obj = await fetcher.update();
+                    expect(obj.playlist!.index.media_sequence).to.equal(playlists.length);
+                    playlists.push(obj);
+                }
+            })();
+
+            await Promise.all([writer, reader]);
 
             expect(playlists).to.have.length(6);
         }
