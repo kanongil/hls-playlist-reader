@@ -10,11 +10,11 @@ import Fs from 'fs';
 import Boom from '@hapi/boom';
 import { expect } from '@hapi/code';
 import { M3U8Playlist, MainPlaylist, MediaPlaylist, ParserError } from 'm3u8parse';
-import wait from '@hapi/hoek/wait';
 
 import * as Shared from './_shared.js';
 import { createReader, HlsPlaylistReadable, HlsPlaylistReaderOptions } from '../lib/index.js';
 import { HlsPlaylistFetcher, HlsPlaylistFetcherOptions, PlaylistObject } from '../lib/fetcher.node.js';
+import { wait } from '../lib/helpers.js';
 
 
 const expectCause = (err: any, match: string | RegExp): void => {

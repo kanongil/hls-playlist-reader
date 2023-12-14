@@ -4,10 +4,9 @@ import Path from 'path';
 import Url, { URL } from 'url';
 
 import { expect } from '@hapi/code';
-import wait from '@hapi/hoek/wait';
 
 import { HlsPlaylistFetcher as HlsPlaylistFetcherNode } from '../lib/fetcher.node.js';
-import { ContentFetcher as ContentFetcherNode } from '../lib/helpers.node.js';
+import { ContentFetcher as ContentFetcherNode, wait } from '../lib/helpers.node.js';
 import { ServerState, genIndex } from './_shared.js';
 
 

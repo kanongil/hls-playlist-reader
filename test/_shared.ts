@@ -2,13 +2,14 @@ import * as Fs from 'fs';
 import { Readable } from 'stream';
 
 import * as Hapi from '@hapi/hapi';
-import ignore from '@hapi/hoek/ignore';
 import Inert from '@hapi/inert';
 import Joi from 'joi';
 import { AttrList, M3U8Playlist, MediaPlaylist, MediaSegment } from 'm3u8parse';
-import wait from '@hapi/hoek/wait';
-import { HlsPlaylistFetcher } from '../src/fetcher.js';
 
+import { HlsPlaylistFetcher } from '../lib/fetcher.js';
+import { wait } from '../lib/helpers.js';
+
+const ignore = () => undefined;
 
 export interface UnprotectedPlaylistFetcher {
     _intervals: (number | undefined)[];

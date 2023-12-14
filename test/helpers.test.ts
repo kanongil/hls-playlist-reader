@@ -8,12 +8,12 @@ import { ReadableStream } from 'node:stream/web';
 
 import { Boom } from '@hapi/boom';
 import { expect } from '@hapi/code';
-import ignore from '@hapi/hoek/ignore';
-import wait from '@hapi/hoek/wait';
 
-import { Deferred, IDownloadTracker, wait as waitI } from '../lib/helpers.js';
+import { Deferred, IDownloadTracker, wait } from '../lib/helpers.js';
 
 import { hasFetch, provisionServer } from './_shared.js';
+
+const ignore = () => undefined;
 
 declare global {
     // Add AsyncIterator which is implemented by node.js
@@ -30,6 +30,24 @@ const testMatrix = new Map(Object.entries({
     'node+http': { module: '../lib/helpers.node.js', Class: Readable, baseUrl: new URL('simple/', server.info.uri).href },
     'web+http': { module: '../lib/helpers.web.js', Class: ReadableStream, baseUrl: new URL('simple/', server.info.uri).href, skip: !hasFetch }
 }));
+
+describe('wait()', () => {
+
+    it('can be cancelled', async () => {
+
+        const ac = new AbortController();
+        const promise = wait(5000, { signal: ac.signal });
+        ac.abort();
+        await expect(promise).to.reject(/was aborted/);
+    });
+
+    it('can be cancelled early', async () => {
+
+        const ac = new AbortController();
+        ac.abort();
+        await expect(wait(5000, { signal: ac.signal })).to.reject(/was aborted/);
+    });
+});
 
 for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
 
@@ -545,24 +563,6 @@ describe('Deferred()', () => {
             await expect(deferred.promise).to.reject('fail');
             await Promise.race([unhandled, wait(1)]);
         })();
-    });
-});
-
-describe('wait()', () => {
-
-    it('can be cancelled', async () => {
-
-        const ac = new AbortController();
-        const promise = waitI(5000, { signal: ac.signal });
-        ac.abort();
-        await expect(promise).to.reject(/was aborted/);
-    });
-
-    it('can be cancelled early', async () => {
-
-        const ac = new AbortController();
-        ac.abort();
-        await expect(waitI(5000, { signal: ac.signal })).to.reject(/was aborted/);
     });
 });
 

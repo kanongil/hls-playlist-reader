@@ -3,11 +3,10 @@ import Os from 'os';
 import Path from 'path';
 import { pathToFileURL, URL } from 'url';
 
-import assert from '@hapi/hoek/assert';
 import { expect } from '@hapi/code';
-import wait from '@hapi/hoek/wait';
 
 import { ChangeWatcher } from '../lib/helpers.node.js';
+import { wait } from '../lib/helpers.js';
 
 
 describe('FsWatcher', () => {
@@ -20,8 +19,8 @@ describe('FsWatcher', () => {
             await wait(20); // macOS needs time to settle before starting the watcher...
         }
 
-        const watcher = ChangeWatcher.create(uri);
-        assert(watcher);
+        const watcher = ChangeWatcher.create(uri)!;
+        expect(watcher).to.exist();
         if (Os.platform() === 'darwin') {
             await wait(20); // macOS needs time to setup the watcher...
         }
@@ -50,7 +49,7 @@ describe('FsWatcher', () => {
 
                 const watcher = await createWatcher(fileUrl);
                 const promise = watcher.next();
-                expect(await Promise.race([promise, wait(1, 'waiting')])).to.equal('waiting');
+                expect(await Promise.race([promise, wait(1).then(() => 'waiting')])).to.equal('waiting');
 
                 await Fs.promises.writeFile(fileUrl, '<run>2</run>', 'utf-8');
 
@@ -90,7 +89,7 @@ describe('FsWatcher', () => {
             try {
                 const promise = watcher.next();
 
-                expect(await Promise.race([promise, wait(1, 'waiting')])).to.equal('waiting');
+                expect(await Promise.race([promise, wait(1).then(() => 'waiting')])).to.equal('waiting');
                 await Fs.promises.writeFile(fileUrl, '<run>1</run>', 'utf-8');
                 expect(await promise).to.equal('rename');
                 if (Os.platform() === 'linux') {
@@ -159,7 +158,7 @@ describe('FsWatcher', () => {
 
                     await Fs.promises.writeFile(tmpUrl, '<run>2</run>', 'utf-8');
 
-                    expect(await Promise.race([promise, wait(1, 'waiting')])).to.equal('waiting');
+                    expect(await Promise.race([promise, wait(1).then(() => 'waiting')])).to.equal('waiting');
 
                     await Fs.promises.rename(tmpUrl, fileUrl);
 
@@ -181,9 +180,9 @@ describe('FsWatcher', () => {
             try {
                 const promise = watcher.next(20);
 
-                expect(await Promise.race([promise, wait(1, 'waiting')])).to.equal('waiting');
+                expect(await Promise.race([promise, wait(1).then(() => 'waiting')])).to.equal('waiting');
                 await wait(40);
-                expect(await Promise.race([promise, wait(1, 'waiting')])).to.equal('timeout');
+                expect(await Promise.race([promise, wait(1).then(() => 'waiting')])).to.equal('timeout');
             }
             finally {
                 watcher.close();
@@ -201,9 +200,9 @@ describe('FsWatcher', () => {
                 const watcher = await createWatcher(fileUrl);
                 const promise = watcher.next();
                 try {
-                    expect(await Promise.race([promise, wait(1, 'waiting')])).to.equal('waiting');
+                    expect(await Promise.race([promise, wait(1).then(() => 'waiting')])).to.equal('waiting');
                     await Fs.promises.writeFile(adjUrl, '<run>2</run>', 'utf-8');
-                    expect(await Promise.race([promise, wait(1, 'waiting')])).to.equal('waiting');
+                    expect(await Promise.race([promise, wait(1).then(() => 'waiting')])).to.equal('waiting');
                 }
                 finally {
                     watcher.close();
