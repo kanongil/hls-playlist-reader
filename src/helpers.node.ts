@@ -13,10 +13,18 @@ import { AbortablePromise, AbortError, assert, ChangeWatcher, Deferred, FetchOpt
 export * from './helpers.js';
 
 
+const activeCount = Symbol('activeCount');
+
 const internals = {
     fetchBuffer: 10 * 1000 * 1000,
 
-    agents: new Map < string | symbol, { http: AgentKeepalive; https: AgentKeepalive.HttpsAgent }>(),
+    agents: new Map<string | symbol, { http: AgentKeepalive; https: AgentKeepalive.HttpsAgent; [activeCount]: number }>(),
+    blockingAgentConfig: {
+        maxSockets: 1,
+        maxFreeSockets: 1,
+        timeout: 0, // disable socket inactivity timeout
+        freeSocketTimeout: 20_000 // free unused sockets after 20 seconds
+    },
     blockingConfig(id?: string | symbol): { agent: { http: AgentKeepalive; https: AgentKeepalive.HttpsAgent } } | undefined {
 
         if (id === undefined) {
@@ -27,22 +35,67 @@ const internals = {
 
         let agents = internals.agents.get(id);
         if (!agents) {
-            const config = {
-                maxSockets: 1,
-                maxFreeSockets: 1,
-                timeout: 0, // disable socket inactivity timeout
-                freeSocketTimeout: 20_000 // free unused sockets after 20 seconds
-            };
-
             agents = {
-                http: new AgentKeepalive(config),
-                https: new AgentKeepalive.HttpsAgent(config)
+                get http() {
+
+                    const agent = new AgentKeepalive(internals.blockingAgentConfig);
+                    Object.defineProperty(this, 'http', { value: agent, configurable: true, enumerable: true });
+                    return agent;
+                },
+                get https() {
+
+                    const agent = new AgentKeepalive.HttpsAgent(internals.blockingAgentConfig);
+                    Object.defineProperty(this, 'https', { value: agent, configurable: true, enumerable: true });
+                    return agent;
+                },
+                [activeCount]: 1
             };
 
             internals.agents.set(id, agents);
         }
+        else {
+            ++agents[activeCount];
+        }
 
         return { agent: agents };
+    },
+    unblockerTimer: undefined as ReturnType<typeof setTimeout> | undefined,
+    unblocker() {
+
+        let standby = 0;
+        for (const [id, agents] of internals.agents) {
+            if (agents[activeCount] === 0) {
+                for (const agentName of ['http', 'https']) {
+                    const agent = Object.getOwnPropertyDescriptor(agents, agentName)?.value as AgentKeepalive | undefined;
+                    if (agent) {
+                        const status = agent.getCurrentStatus();
+                        const socketCount = Object.keys(status.sockets).length + Object.keys(status.freeSockets).length;
+                        if (socketCount > 0) {
+                            ++standby;
+                            continue;
+                        }
+                    }
+                }
+
+                // No sockets for id
+
+                internals.agents.delete(id);
+            }
+        }
+
+        if (standby > 0) {
+            clearTimeout(internals.unblockerTimer);
+            internals.unblockerTimer = setTimeout(internals.unblocker, 10_000);
+            internals.unblockerTimer.unref?.();
+        }
+    },
+    unblock(id: string | symbol) {
+
+        const count = --internals.agents.get(id)![activeCount];
+        if (count === 0 && !internals.unblockerTimer) {
+            internals.unblockerTimer = setTimeout(internals.unblocker, 10_000);
+            internals.unblockerTimer.unref?.();
+        }
     }
 };
 
@@ -160,6 +213,10 @@ class NodeFetcher implements IContentFetcher<TFetcherStream> {
                 };
             }
         });
+
+        if (blocking) {
+            completed.then(() => internals.unblock(blocking), () => internals.unblock(blocking));
+        }
 
         finish ? completed.then(finish, finish) : completed.catch(() => undefined);
 
