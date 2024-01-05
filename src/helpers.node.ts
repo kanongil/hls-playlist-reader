@@ -1,5 +1,6 @@
 import type { Meta } from 'uristream/lib/uri-reader.js';
 import { Readable } from 'stream';
+import { finished } from 'stream/promises';
 
 import { watch } from 'fs';
 import { basename, dirname } from 'path';
@@ -31,7 +32,7 @@ const internals = {
             return;
         }
 
-        // Create a keepalive agent with 1 socket for each blocking id
+        // Create a (lazy) keepalive agent with 1 socket for each blocking id
 
         let agents = internals.agents.get(id);
         if (!agents) {
@@ -177,11 +178,12 @@ class NodeFetcher implements IContentFetcher<TFetcherStream> {
         const advance = trackerMethod('advance');
         const finish = trackerMethod('finish');
 
-        const streamOptions = Object.assign({
+        const streamOptions: Parameters<typeof Uristream>[1] = Object.assign({
             probe,
             highWaterMark: internals.fetchBuffer,
             timeout,
-            retries
+            retries,
+            enableUnixSockets: true
         }, internals.blockingConfig(blocking), byterange ? {
             start: byterange.offset,
             end: byterange.length !== undefined ? byterange.offset + byterange.length - 1 : undefined
@@ -191,34 +193,18 @@ class NodeFetcher implements IContentFetcher<TFetcherStream> {
 
         // Track both ready (has meta) and completed (stream fully fetched / errored)
 
-        const completed = new Promise<void>((resolve, reject) => {
+        const fetched = new Promise<void>((resolve, reject) => {
 
             stream.on('error', reject);
-            stream.on('close', resolve);
-
-            if (!probe) {
-                // Intercept embedded push to immediately know when any underlying stream is completed.
-                // This way it doesn't need to be consumed for it to trigger.
-
-                const origPush = stream.push;
-                stream.push = (chunk: any, ...rest: any[]): boolean => {
-
-                    if (chunk === null) {
-                        stream.removeListener('error', reject);
-                        stream.removeListener('close', resolve);
-                        process.nextTick(resolve);
-                    }
-
-                    return origPush.call(stream, chunk, ...rest);
-                };
-            }
+            stream.on('fetched', (err) => (err ? reject(err) : resolve()));
         });
+        fetched.catch(() => undefined);
 
         if (blocking) {
-            completed.then(() => internals.unblock(blocking), () => internals.unblock(blocking));
+            fetched.then(() => internals.unblock(blocking), () => internals.unblock(blocking));
         }
 
-        finish ? completed.then(finish, finish) : completed.catch(() => undefined);
+        finish ? fetched.then(finish, finish) : fetched.catch(() => undefined);
 
         if (advance) {
             stream.on('data', (chunk) => advance(chunk.byteLength));
@@ -244,7 +230,7 @@ class NodeFetcher implements IContentFetcher<TFetcherStream> {
                     stream.resume();     // Ensure that we actually end
                 }
 
-                resolve(new NodeFetchResult(meta, probe ? undefined : stream, completed));
+                resolve(new NodeFetchResult(meta, probe ? undefined : stream, fetched));
             };
 
             const onMeta = (meta: Meta) => {
@@ -269,7 +255,7 @@ class NodeFetcher implements IContentFetcher<TFetcherStream> {
 
             const onFail = (err?: Error) => {
 
-                finish?.();
+                finish?.(err);
 
                 // Guard against broken uristream
 
@@ -302,7 +288,7 @@ class NodeFetcher implements IContentFetcher<TFetcherStream> {
             const cleanup = () => signal.removeEventListener('abort', onSignalAbort);
 
             signal.addEventListener('abort', onSignalAbort);
-            completed.then(cleanup, cleanup);
+            finished(stream).then(cleanup, cleanup);
         }
 
         return ready;

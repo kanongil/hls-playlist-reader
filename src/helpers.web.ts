@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 
-import { AbortablePromise, AbortError, assert, FetchOptions, IFetchResult, IContentFetcher, TimeoutError, IURL } from './helpers.js';
+import { AbortablePromise, AbortError, assert, FetchOptions, IFetchResult, IContentFetcher, TimeoutError, IURL, Deferred } from './helpers.js';
 
 export * from './helpers.js';
 
@@ -131,112 +131,205 @@ class WebFetcher implements IContentFetcher<TFetcherStream> {
 
         const advance = trackerMethod('advance');
         const finish = trackerMethod('finish');
+
+        let res;
         try {
-            let res;
-            try {
-                res = await fetch(uri, {
-                    cache: options.fresh ? 'no-store' : 'default',
-                    method: probe ? 'HEAD' : 'GET',
-                    headers,
-                    redirect: 'follow',                // TODO: use manual mode?!?!
-                    credentials: 'omit',
-                    mode: 'cors',
-                    signal
-                });
-            }
-            catch (err) {
-                assert(err instanceof Error);
-                finish?.(err);
-                throw err;
-            }
-            finally {
-                signal.throwIfAborted();
-            }
-
-            if (res.status >= 300) {
-                finish?.();
-
-                if (retries && !this.httpHardFail.has(res.status)) {
-                    try {
-                        await res.arrayBuffer();    // Empty buffer to allow res to be deallocated
-                    }
-                    finally {
-                        signal.throwIfAborted();
-                    }
-
-                    return this.#performFetch(uri, { ...options, tracker, retries: retries - 1 });
-                }
-
-                throw Object.assign(new Error('Fetch failed', { cause: res.statusText }), {
-                    httpStatus: res.status
-                });
-            }
-
-            if (!probe) {
-                advance?.(0);
-            }
-
-            let contentLength = -1;
-            if (res.headers.has('content-length')) {
-                const contentEncoding = res.headers.get('content-encoding');
-                if (contentEncoding === 'identity' || !contentEncoding) {
-                    contentLength = parseInt(res.headers.get('content-length')!, 10);
-                }
-            }
-
-            const typeparts = /^(.+?\/.+?)(?:;\w*.*)?$/.exec(res.headers.get('content-type')!) || [null, 'application/octet-stream'];
-
-            let stream = !probe ? res.body ?? undefined : undefined;
-            if (stream) {
-                const [orig, monitor] = stream.tee();
-
-                // This has the side-effect of loading all data into the stream without considering pressure
-                // This is a desirable feature for our use-cases
-
-                // TODO: add a bytelimit?
-
-                completed = new Promise<void>((resolve, reject) => {
-
-                    // Hook a specific signal that is always aborted, to workaround Safari memory leak
-                    // Issue observed in Safari 16 and fixed in ?? with https://github.com/WebKit/WebKit/pull/6759
-
-                    const ac = new AbortController();
-                    const onSignalAbort = () => ac.abort(signal!.reason);
-                    signal.addEventListener('abort', onSignalAbort);
-
-                    monitor.pipeTo(new WritableStream({
-                        write: advance ? (chunk) => advance(chunk.byteLength) : () => undefined,
-                        abort: (reason) => reject(reason || new AbortError('Fetch aborted during stream download')),    // TODO: test!!
-                        close: () => resolve()
-                    }), { signal: ac.signal }).catch(() => undefined).then(() => {
-
-                        signal.removeEventListener('abort', onSignalAbort);
-                        ac.abort();    // Late abort that ensures signal abort handler is triggered in order to free its scope
-                    }, () => undefined);
-
-                    stream = orig;
-                });
-            }
-            else {
-                completed = Promise.resolve();
-            }
-
-            return new WebFetchResult(
-                {
-                    url: res.url,
-                    mime: typeparts[1]!.toLowerCase(),
-                    size: contentLength,
-                    modified: res.headers.has('last-modified') ? new Date(res.headers.get('last-modified')!) : null,
-                    etag: res.headers.get('etag') ?? undefined
-                },
-                stream,
-                completed);
+            res = await fetch(uri, {
+                cache: options.fresh ? 'no-store' : 'default',
+                method: probe ? 'HEAD' : 'GET',
+                headers,
+                redirect: 'follow',                // TODO: use manual mode?!?!
+                credentials: 'omit',
+                mode: 'cors',
+                signal
+            });
+        }
+        catch (err) {
+            assert(err instanceof Error);
+            finish?.(err);
+            throw err;
         }
         finally {
-            if (completed) {
-                finish ? completed.then(finish, finish) : completed.catch(() => undefined);
+            signal.throwIfAborted();
+        }
+
+        if (res.status >= 300) {
+            finish?.();
+
+            if (retries && !this.httpHardFail.has(res.status)) {
+                try {
+                    await res.arrayBuffer();    // Empty buffer to allow res to be deallocated
+                }
+                finally {
+                    signal.throwIfAborted();
+                }
+
+                return this.#performFetch(uri, { ...options, tracker, retries: retries - 1 });
+            }
+
+            throw Object.assign(new Error('Fetch failed', { cause: res.statusText }), {
+                httpStatus: res.status
+            });
+        }
+
+        if (!probe) {
+            advance?.(0);
+        }
+
+        let contentLength = -1;
+        if (res.headers.has('content-length')) {
+            const contentEncoding = res.headers.get('content-encoding');
+            if (contentEncoding === 'identity' || !contentEncoding) {
+                contentLength = parseInt(res.headers.get('content-length')!, 10);
             }
         }
+
+        const typeparts = /^(.+?\/.+?)(?:;\w*.*)?$/.exec(res.headers.get('content-type')!) || [null, 'application/octet-stream'];
+
+        let stream = !probe ? res.body ?? undefined : undefined;
+        if (stream) {
+            const source = new InternalBufferSource(stream, { advance, finish });    // No need to handle signal, as stream will be aborted from it
+            stream = new ReadableStream(source, { highWaterMark: 0 });
+
+            completed = source.completed;
+        }
+        else {
+            completed = Promise.resolve();
+            finish?.();
+        }
+
+        return new WebFetchResult(
+            {
+                url: res.url,
+                mime: typeparts[1]!.toLowerCase(),
+                size: contentLength,
+                modified: res.headers.has('last-modified') ? new Date(res.headers.get('last-modified')!) : null,
+                etag: res.headers.get('etag') ?? undefined
+            },
+            stream,
+            completed);
+    }
+}
+
+interface StreamTracker {
+    advance?: (bytes: number) => void;
+    finish?: (err?: Error) => void;
+}
+
+class InternalBufferSource implements UnderlyingByteSource {
+
+    readonly type = 'bytes';
+
+    readonly #reader: ReadableStreamDefaultReader<Uint8Array>;
+    readonly #tracker: StreamTracker;
+
+    // State
+
+    readonly #chunks: Uint8Array[] = [];
+    #waiting?: Deferred<void>;
+    #completed = false;
+
+    /**
+     * Buffers all incoming chunks of the source, reporting them to tracker.
+     *
+     * Source errors are immediately reported through `completed` but not through the
+     * controller until all the buffered data has been consumed.
+     *
+     * @param source Source stream to consume from.
+     * @param tracker Tracker that is notified of state of source stream.
+     */
+    constructor(source: ReadableStream<Uint8Array>, tracker: StreamTracker) {
+
+        this.#reader = source.getReader(/*{ mode: 'byob' }*/);    // TODO: use BYOB
+        this.#tracker = tracker;
+    }
+
+    /**
+     * Feeds chunks from source reader into internal buffer until the reader closes or errors.
+     *
+     * Also updates internal state and notifies listeners after each chunk is received.
+     */
+    async #feeder(controller: ReadableByteStreamController) {
+
+        try {
+            const reader = this.#reader;
+            const { advance, finish } = this.#tracker;
+            const chunks = this.#chunks;
+
+            for (;;) {
+                try {
+                    // TODO: limit internal buffer size
+
+                    let result: Awaited<ReturnType<typeof reader.read>> | undefined;
+                    try {
+                        result = await reader.read();
+                    }
+                    catch (err) {
+                        assert(err instanceof Error);
+                        finish?.(err);
+                        break;     // completed (with error)
+                    }
+
+                    const { done, value } = result!;
+                    if (done) {
+                        finish?.();
+                        break;     // completed
+                    }
+
+                    chunks.push(value);
+                    advance?.(value.byteLength);
+                }
+                finally {
+                    if (this.#waiting) {
+                        this.#waiting.resolve();
+                        this.#waiting = undefined;
+                    }
+                }
+            }
+
+            this.#completed = true;
+        }
+        catch (err) {
+            controller.error(new Error('Internal buffer processing error', { cause: err }));
+        }
+    }
+
+    start(controller: ReadableByteStreamController): void {
+
+        void this.#feeder(controller);      // Start async feeder from reader
+    }
+
+    pull(controller: ReadableByteStreamController): Promise<void> | void {
+
+        // Consumer needs a chunk
+
+        const chunk = this.#chunks.shift();
+        if (!chunk) {
+            if (this.#completed) {
+                return this.#reader.closed.then(() => controller.close(), (err) => controller.error(err));
+            }
+
+            this.#waiting = new Deferred(false);
+            return this.#waiting.promise.then(() => this.pull(controller));
+        }
+
+        return controller.enqueue(chunk);
+    }
+
+    cancel(reason: unknown): Promise<void> | void {
+
+        // Consumer dropped the stream
+
+        this.#chunks.splice(0, this.#chunks.length);
+
+        if (!this.#completed) {
+            return this.#reader.cancel(reason);
+        }
+    }
+
+    get completed() {
+
+        return this.#reader.closed;
     }
 }
 

@@ -147,6 +147,31 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
             result.cancel();
         });
 
+        it('defers transfer errors until internal buffer has been consumed', async function () {
+
+            if (label.includes('file')) {
+                return this.skip();
+            }
+
+            const url = new URL('../error-data/500.m3u8', baseUrl);
+            const fetch = fetcher.perform(url);
+
+            const result = await fetch;
+            const err = await expect(result.completed).to.reject(Error, /terminated|socket hang up/);
+
+            let consumed = 0;
+            await expect((async () => {
+
+                for await (const chunk of result.stream!) {
+                    consumed += chunk.byteLength;
+                }
+            })()).to.reject(Error, err.message);
+
+            expect(consumed).to.equal(100);
+
+            result.cancel();
+        });
+
         it('supports "probe" option', async () => {
 
             const url = new URL('500.m3u8', baseUrl);
@@ -394,6 +419,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
 
                     for await (const chunk of stream!) {
                         transferred += (chunk as Buffer).length;
+                        await wait(0);
                         expect(state).to.include({ total: transferred, ended: true });
                     }
                 })()).to.reject(Error);

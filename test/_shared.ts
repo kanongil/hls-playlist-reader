@@ -1,4 +1,4 @@
-import * as Fs from 'fs';
+import Fs from 'fs/promises';
 import { Readable } from 'stream';
 
 import * as Hapi from '@hapi/hapi';
@@ -32,26 +32,22 @@ export const provisionServer = async () => {
         return 200;
     };
 
-    const slowServe: Hapi.Lifecycle.Method = (request, h) => {
+    const errorServe: Hapi.Lifecycle.Method = async (request, h) => {
 
-        const slowStream = new Readable();
-        slowStream._read = ignore;
+        const errorStream = new Readable();
+        errorStream._read = ignore;
 
         const url = new URL(`fixtures/${request.params.path}`, import.meta.url);
-        const buffer = Fs.readFileSync(url);
-        slowStream.push(buffer.slice(0, 5000));
-        setTimeout(() => {
+        const buffer = await Fs.readFile(url);
+        errorStream.push(buffer.subarray(0, 100));
+        setTimeout(() => errorStream.destroy(new Error('transfer error')), 10);
 
-            slowStream.push(buffer.slice(5000));
-            slowStream.push(null);
-        }, 200);
-
-        return h.response(slowStream).type('video/mp2t').header('content-length', buffer.byteLength.toString());
+        return h.response(errorStream).type('video/mp2t').header('content-length', buffer.byteLength.toString());
     };
 
     server.route({ method: 'GET', path: '/simple/{path*}', handler: { directory: { path: '.' } } });
     server.route({ method: 'GET', path: '/slow/{path*}', handler: { directory: { path: '.' } }, options: { pre: [{ method: delay, assign: 'delay' }] } });
-    server.route({ method: 'GET', path: '/slow-data/{path*}', handler: slowServe });
+    server.route({ method: 'GET', path: '/error-data/{path*}', handler: errorServe });
     server.route({
         method: 'GET', path: '/error', handler(request, h) {
 

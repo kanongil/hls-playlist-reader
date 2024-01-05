@@ -114,7 +114,7 @@ export interface IFetchResult<T extends object | unknown = unknown> {
     readonly meta: FetchMeta;
 
     /**
-     * Resolved once the stream data has been fetched, or rejects (without requiring a listener) with any transfer errors.
+     * Resolved once the stream data has been fetched, or rejects with any transfer errors.
      */
     readonly completed: Promise<void>;
 
