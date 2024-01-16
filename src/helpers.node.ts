@@ -263,8 +263,6 @@ class NodeFetcher implements IContentFetcher<TFetcherStream> {
 
             const onFail = (err?: Error) => {
 
-                finish?.(err);
-
                 // Guard against broken uristream
 
                 /* $lab:coverage:off$ */ /* c8 ignore start */

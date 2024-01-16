@@ -293,7 +293,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                     }
                 };
 
-                const state: { total?: number; started?: IURL; config?: Parameters<IDownloadTracker['start']>[1]; advances: number[]; ended?: boolean; fail?: boolean | string } = {
+                const state: { total?: number; started?: IURL; config?: Parameters<IDownloadTracker['start']>[1]; advances: number[]; ended?: boolean; fail?: boolean | string; finish?: number } = {
                     advances: []
                 };
                 const tracker: IDownloadTracker<typeof state> = {
@@ -302,6 +302,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                         state.started = uri;
                         state.config = config;
                         state.advances = [];
+                        delete state.finish;
                         delete state.ended;
                         state.total = undefined;
 
@@ -316,6 +317,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                     },
                     finish(token, err) {
 
+                        token.finish = (token.finish ?? 0) + 1;
                         token.ended = false;
                         maybeFail('finish');
                         token.ended = true;
@@ -400,7 +402,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                 expect(stream).to.not.exist();
 
                 await wait(0);
-                expect(state).to.include({ total: undefined, ended: true });
+                expect(state).to.include({ total: undefined, ended: true, finish: 1 });
             });
 
             it('on request errors', async () => {
@@ -416,7 +418,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                     const expectedStatus = err instanceof Boom ? { output: { statusCode: 404 } } : { httpStatus: 404 };
                     expect(err).to.part.include(expectedStatus);
 
-                    expect(state).to.include({ total: undefined, ended: true });
+                    expect(state).to.include({ total: undefined, ended: true, finish: 1 });
                 }
 
                 // hard error
@@ -425,7 +427,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                     const promise = fetcher.perform(url, { tracker });
                     expect(state).to.include({ total: undefined, started: url });
                     await expect(promise).to.reject(Error);
-                    expect(state).to.include({ total: undefined, ended: true });
+                    expect(state).to.include({ total: undefined, ended: true, finish: 1 });
                 }
             });
 
@@ -448,7 +450,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                     }
                 })()).to.reject(Error);
                 expect(err.name).to.equal('AbortError');
-                expect(state).to.include({ ended: true });
+                expect(state).to.include({ ended: true, finish: 1 });
                 expect(transferred).to.equal(0);
             });
 
@@ -511,6 +513,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                         await wait(0);
                     }
 
+                    expect(state.finish).to.equal(1);
                     expect(state.ended).to.be.false();
                 }
 
@@ -519,6 +522,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                     const promise = fetcher.perform(new URL('http://does.not.exist'), { tracker });
                     state.fail = 'finish';
                     await expect(promise).to.reject(Error);
+                    expect(state.finish).to.equal(1);
                     expect(state.ended).to.be.false();
                 }
 
@@ -529,6 +533,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                     const err = await expect(promise).to.reject(Error);
                     const expectedStatus = err instanceof Boom ? { output: { statusCode: 404 } } : { httpStatus: 404 };
                     expect(err).to.part.include(expectedStatus);
+                    expect(state.finish).to.equal(1);
                     expect(state.ended).to.be.false();
                 }
             });
