@@ -188,7 +188,7 @@ class WebFetcher implements IContentFetcher<TFetcherStream> {
 
         let stream = !probe ? res.body ?? undefined : undefined;
         if (stream) {
-            const source = new InternalBufferSource(stream, { advance, finish });    // No need to handle signal, as stream will be aborted from it
+            const source = new InternalBufferSource(stream, { advance, finish }, { signal });
             stream = new ReadableStream(source, { highWaterMark: 0 });
 
             completed = source.completed;
@@ -222,6 +222,7 @@ class InternalBufferSource implements UnderlyingByteSource {
 
     readonly #reader: ReadableStreamDefaultReader<Uint8Array>;
     readonly #tracker: StreamTracker;
+    readonly #signal: AbortSignal;
 
     // State
 
@@ -238,10 +239,11 @@ class InternalBufferSource implements UnderlyingByteSource {
      * @param source Source stream to consume from.
      * @param tracker Tracker that is notified of state of source stream.
      */
-    constructor(source: ReadableStream<Uint8Array>, tracker: StreamTracker) {
+    constructor(source: ReadableStream<Uint8Array>, tracker: StreamTracker, { signal }: { signal: AbortSignal }) {
 
         this.#reader = source.getReader(/*{ mode: 'byob' }*/);    // TODO: use BYOB
         this.#tracker = tracker;
+        this.#signal = signal;
     }
 
     /**
@@ -263,6 +265,7 @@ class InternalBufferSource implements UnderlyingByteSource {
                     let result: Awaited<ReturnType<typeof reader.read>> | undefined;
                     try {
                         result = await reader.read();
+                        this.#signal.throwIfAborted();      // Even though reader aborts on signal, it might return some buffers before erroring
                     }
                     catch (err) {
                         assert(err instanceof Error);
@@ -302,6 +305,11 @@ class InternalBufferSource implements UnderlyingByteSource {
     pull(controller: ReadableByteStreamController): Promise<void> | void {
 
         // Consumer needs a chunk
+
+        if (this.#signal.aborted) {
+            this.#chunks.splice(0, this.#chunks.length);
+            return controller.error(this.#signal.reason);
+        }
 
         const chunk = this.#chunks.shift();
         if (!chunk) {
