@@ -293,12 +293,15 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                     }
                 };
 
-                const state: { total?: number; started?: IURL; config?: Parameters<IDownloadTracker['start']>[1]; ended?: boolean; fail?: boolean | string } = {};
+                const state: { total?: number; started?: IURL; config?: Parameters<IDownloadTracker['start']>[1]; advances: number[]; ended?: boolean; fail?: boolean | string } = {
+                    advances: []
+                };
                 const tracker: IDownloadTracker<typeof state> = {
                     start(uri, config) {
 
                         state.started = uri;
                         state.config = config;
+                        state.advances = [];
                         delete state.ended;
                         state.total = undefined;
 
@@ -308,6 +311,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                     advance(token, bytes) {
 
                         maybeFail('advance');
+                        token.advances.push(bytes);
                         token.total = (token.total ?? 0) + bytes;
                     },
                     finish(token, err) {
@@ -328,18 +332,28 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                 const url = new URL('500.m3u8', baseUrl);
                 const promise = fetcher.perform(url, { tracker });
                 expect(state).to.include({ total: undefined, started: url });
-                const { stream } = await promise;
+                const { stream, completed } = await promise;
 
-                expect(state).to.include({ total: 0, started: url });
+                expect(state).to.include({ started: url });
+                expect(state.ended).to.not.exist();
 
-                let transferred = 0;
-                for await (const chunk of stream!) {
-                    transferred += (chunk as Buffer).length;
-                    expect(state).to.include({ total: transferred });
-                }
+                await completed;
 
                 await wait(0);
-                expect(state).to.include({ total: 416, ended: true });
+                expect(state).to.include({ ended: true });
+
+                let transferred = 0;
+                const transfers: number[] = [0];
+                for await (const chunk of stream!) {
+                    transferred += (chunk as Buffer).byteLength;
+                    transfers.push((chunk as Buffer).byteLength);
+                }
+
+                expect(state).to.include({
+                    advances: transfers,
+                    total: transferred,
+                    ended: true
+                });
             });
 
             it('for byterange requests', async () => {
@@ -349,18 +363,30 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                 const url = new URL('500.m3u8', baseUrl);
                 const promise = fetcher.perform(url, { tracker, byterange: { offset: 20, length: 50 } });
                 expect(state).to.include({ total: undefined, started: url, config: { byterange: { offset: 20, length: 50 }, blocking: false } });
-                const { stream } = await promise;
+                const { stream, completed } = await promise;
 
-                expect(state).to.include({ total: 0 });
+                expect(state).to.include({ started: url });
+                expect(state.ended).to.not.exist();
 
-                let transferred = 0;
-                for await (const chunk of stream!) {
-                    transferred += (chunk as Buffer).length;
-                    expect(state).to.include({ total: transferred });
-                }
+                await completed;
 
                 await wait(0);
-                expect(state).to.include({ total: 50, ended: true });
+                expect(state).to.include({ ended: true });
+
+                let transferred = 0;
+                const transfers: number[] = [0];
+                for await (const chunk of stream!) {
+                    transferred += (chunk as Buffer).byteLength;
+                    transfers.push((chunk as Buffer).byteLength);
+                }
+
+                expect(state).to.include({
+                    advances: transfers,
+                    total: transferred,
+                    ended: true
+                });
+
+                expect(transferred).to.equal(50);
             });
 
             it('with "probe" option', async () => {
@@ -411,7 +437,7 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                 const fetch = fetcher.perform(url, { tracker });
                 const { stream } = await fetch;
 
-                expect(state).to.include({ total: 0, started: url });
+                expect(state).to.include({ started: url });
                 fetch.abort();
 
                 let transferred = 0;
@@ -419,12 +445,11 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
 
                     for await (const chunk of stream!) {
                         transferred += (chunk as Buffer).length;
-                        await wait(0);
-                        expect(state).to.include({ total: transferred, ended: true });
                     }
                 })()).to.reject(Error);
                 expect(err.name).to.equal('AbortError');
-                expect(state).to.include({ total: transferred, ended: true });
+                expect(state).to.include({ ended: true });
+                expect(transferred).to.equal(0);
             });
 
             it('when it throws', async () => {
@@ -441,10 +466,10 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
                 {
                     const promise = fetcher.perform(url, { tracker });
                     state.fail = true;
-                    await expect(promise).to.not.reject();
+                    const { stream } = await promise;
 
                     let transferred = 0;
-                    for await (const chunk of (await promise).stream!) {
+                    for await (const chunk of stream!) {
                         transferred += (chunk as Buffer).length;
                     }
 
@@ -455,9 +480,9 @@ for (const [label, { module, Class, baseUrl, skip }] of testMatrix) {
 
                 // Fail in advance()
                 {
-                    const { stream } = await fetcher.perform(url, { tracker });
-
-                    state.fail = true;
+                    const promise = fetcher.perform(url, { tracker });
+                    state.fail = 'advance';
+                    const { stream } = await promise;
 
                     let transferred = 0;
                     for await (const chunk of stream!) {

@@ -207,10 +207,18 @@ class NodeFetcher implements IContentFetcher<TFetcherStream> {
         finish ? fetched.then(finish, finish) : fetched.catch(() => undefined);
 
         if (advance) {
-            stream.on('data', (chunk) => advance(chunk.byteLength));
-        }
+            // Intercept stream.push() to immediately know when a chunk is ingested.
 
-        stream.pause();
+            const origPush = stream.push;
+            stream.push = (chunk: any, ...rest: any[]): boolean => {
+
+                if (chunk !== null) {
+                    advance(chunk.byteLength);
+                }
+
+                return origPush.call(stream, chunk, ...rest);
+            };
+        }
 
         const ready = Object.assign(new Promise<IFetchResult<TFetcherStream>>((resolve, reject) => {
 
